@@ -1,0 +1,66 @@
+version: 2
+jobs:
+  tests:
+    docker:
+      - image: circleci/golang:1.14
+      - image: circleci/mongo:4.0
+        name: mongo
+    steps:
+      - checkout
+
+      - restore_cache:
+          keys:
+            - v1-pkg-cache
+
+      - run: go get gotest.tools/gotestsum@v0.4.2
+      - run:
+          name: Tests
+          command: |
+            mkdir -p /tmp/test-results
+            PACKAGE_NAMES=$(go list ./... | circleci tests split --split-by=timings --timings-type=classname)
+            gotestsum --junitfile /tmp/test-results/gotestsum-report.xml -- $PACKAGE_NAMES
+
+      - save_cache:
+          key: v1-pkg-cache
+          paths:
+            - /go/pkg
+
+      - store_artifacts:
+          path: /tmp/test-results
+          destination: raw-test-output
+
+      - store_test_results:
+          path: /tmp/test-results
+
+  lint:
+    docker:
+      - image: circleci/golang:1.14
+    steps:
+      - checkout
+
+      - restore_cache:
+          keys:
+            - v1-pkg-cache
+
+      - run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/fc0a898a6ae297c0ef59e2f1d824713d6f1cd222/install.sh | sh -s -- -d -b $(go env GOPATH)/bin v1.27.0
+      - run: golangci-lint --version
+      - run: make lint
+
+      - save_cache:
+          key: v1-pkg-cache
+          paths:
+            - /go/pkg
+
+  salus:
+    machine: true
+    steps:
+      - checkout
+      - run: docker run -t -v $(pwd):/home/repo coinbase/salus
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - tests
+      - lint
+      - salus
