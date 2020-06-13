@@ -156,12 +156,14 @@ func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
 		return nil, errors.New("connection closed")
 	}
 
-	// FIXME currently this assumes that cursorIDs are unique on the cluster, but two servers can have the same cursorID reference different cursors
+	// FIXME this assumes that cursorIDs are unique on the cluster, but two servers can have the same cursorID reference different cursors
 	requestCursorID, _ := msg.Op.CursorID()
 	server, err := m.selectServer(requestCursorID)
 	if err != nil {
 		return nil, err
 	}
+
+	// FIXME transactions should be pinned to servers, similar to cursors above
 
 	conn, err := m.checkoutConnection(server)
 	if err != nil {
