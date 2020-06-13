@@ -131,7 +131,7 @@ func (c *connection) readWireMessage() ([]byte, error) {
 func (c *connection) roundTrip(msg *mongo.Message, isMaster bool) (*mongo.Message, error) {
 	if isMaster {
 		requestID := msg.Op.RequestID()
-		c.log.Info("Non-proxied ismaster response", zap.Int32("request_id", requestID))
+		c.log.Debug("Non-proxied ismaster response", zap.Int32("request_id", requestID))
 		return mongo.IsMasterResponse(requestID, c.client.TopologyKind())
 	}
 
