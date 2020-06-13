@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/description"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
@@ -34,8 +33,6 @@ func IsMasterResponse(responseTo int32, topologyKind description.TopologyKind) (
 func isMasterDocument(kind description.TopologyKind) (bsoncore.Document, error) {
 	ns := time.Now().UnixNano()
 	ms := ns / 1e6
-	s := ns / 1e9
-	s32 := uint32(s) // :'( will break in 2038
 	var doc bson.D
 	if kind == description.Single {
 		doc = bson.D{
@@ -64,8 +61,6 @@ func isMasterDocument(kind description.TopologyKind) (bsoncore.Document, error) 
 			{Key: "minWireVersion", Value: 0},                            // $numberInt
 			{Key: "saslSupportedMechs", Value: bson.A{}},                 // empty (proxy doesn't support auth)
 			{Key: "ok", Value: 1.0},                                      // $numberDouble
-			{Key: "operationTime", Value: primitive.Timestamp{T: s32}},
-			{Key: "$clusterTime", Value: bson.D{{Key: "clusterTime", Value: primitive.Timestamp{T: s32}}}},
 		}
 	}
 	return bson.Marshal(doc)
