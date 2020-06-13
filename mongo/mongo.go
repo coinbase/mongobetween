@@ -175,6 +175,7 @@ func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
 		}
 	}()
 
+	// TODO add support for one-way messages (unacked writes)
 	wm, err := m.roundTrip(conn, msg.Wm)
 	if err != nil {
 		return nil, err
