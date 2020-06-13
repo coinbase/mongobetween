@@ -81,7 +81,7 @@ func (c *connection) handleMessage() (err error) {
 		return err
 	}
 
-	c.log.Debug("Message", zap.Int32("op_code", int32(op.OpCode())), zap.Int("request_size", len(wm)))
+	c.log.Debug("Request", zap.Int32("op_code", int32(op.OpCode())), zap.Int("request_size", len(wm)))
 
 	isMaster = op.IsIsMaster()
 	req := &mongo.Message{
