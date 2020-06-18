@@ -51,6 +51,13 @@ mongobetween -network unix \
 
 The `label` query parameter in the connection URI is used to any tag statsd metrics or logs for that connection.
 
+### TODO
+
+Current known missing features:
+ - [ ] Transaction server pinning
+ - [ ] Unacked writes (one-way messages)
+ - [ ] Different cursors on separate servers with the same cursor ID value
+
 ### Statsd
 `mongobetween` supports reporting health metrics to a local statsd sidecar, using the [Datadog Go library](github.com/DataDog/datadog-go). By default it reports to `localhost:8125`. The following metrics are reported:
  - `mongobetween.handle_message` (Timing) - round trip time of handling an incoming message from the application
