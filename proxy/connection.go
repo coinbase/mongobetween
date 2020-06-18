@@ -71,14 +71,14 @@ func (c *connection) handleMessage() (err error) {
 		}, 1)
 	}(time.Now())
 
-	wm, err := c.readWireMessage()
-	if err != nil {
-		return err
+	var wm []byte
+	if wm, err = c.readWireMessage(); err != nil {
+		return
 	}
 
-	op, err := mongo.Decode(wm)
-	if err != nil {
-		return err
+	var op mongo.Operation
+	if op, err = mongo.Decode(wm); err != nil {
+		return
 	}
 
 	c.log.Debug("Request", zap.Int32("op_code", int32(op.OpCode())), zap.Int("request_size", len(wm)))
@@ -89,18 +89,26 @@ func (c *connection) handleMessage() (err error) {
 		Op: op,
 	}
 	reqOpCode = op.OpCode()
-	res, err := c.roundTrip(req, isMaster)
-	if err != nil {
-		return err
+
+	var res *mongo.Message
+	if res, err = c.roundTrip(req, isMaster); err != nil {
+		cursorID, _ := op.CursorID()
+		c.log.Error(
+			"Round trip error",
+			zap.Error(err),
+			zap.Int64("cursor_id", cursorID),
+			zap.Int32("op_code", int32(reqOpCode)),
+		)
+		return
 	}
 	resOpCode = res.Op.OpCode()
 
 	if _, err = c.conn.Write(res.Wm); err != nil {
-		return err
+		return
 	}
 
 	c.log.Debug("Response", zap.Int32("op_code", int32(resOpCode)), zap.Int("response_size", len(res.Wm)))
-	return nil
+	return
 }
 
 func (c *connection) readWireMessage() ([]byte, error) {
