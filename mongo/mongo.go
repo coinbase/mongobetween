@@ -178,21 +178,29 @@ func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
 		}
 	}()
 
+	// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L369-L371
+	ep, ok := server.(driver.ErrorProcessor)
+	if !ok {
+		return nil, errors.New("server ErrorProcessor type assertion failed")
+	}
+
 	// TODO add support for one-way messages (unacked writes)
 	wm, err := m.roundTrip(conn, msg.Wm)
 	if err != nil {
-		// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L369-L371
-		if ep, ok := server.(driver.ErrorProcessor); ok {
-			ep.ProcessError(err)
-		} else {
-			m.log.Warn("ErrorProcessor type assertion failed")
-		}
+		ep.ProcessError(err)
 		return nil, err
 	}
 
 	op, err := Decode(wm)
 	if err != nil {
 		return nil, err
+	}
+
+	// check if an error is returned in the server response
+	opErr := op.Error()
+	if opErr != nil {
+		// process the error, but don't return it as we still want to forward the response to the client
+		ep.ProcessError(opErr)
 	}
 
 	if responseCursorID, ok := op.CursorID(); ok {

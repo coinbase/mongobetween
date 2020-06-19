@@ -3,6 +3,8 @@ package mongo
 import (
 	"errors"
 	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/x/mongo/driver"
 
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
@@ -19,6 +21,7 @@ type Operation interface {
 	IsIsMaster() bool
 	CursorID() (cursorID int64, ok bool)
 	RequestID() int32
+	Error() error
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1165-L1230
@@ -87,6 +90,10 @@ func (o *opUnknown) CursorID() (cursorID int64, ok bool) {
 
 func (o *opUnknown) RequestID() int32 {
 	return o.reqID
+}
+
+func (o *opUnknown) Error() error {
+	return nil
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#wire-op-query
@@ -178,6 +185,10 @@ func (q *opQuery) IsIsMaster() bool {
 	ismaster, _ := q.query.Lookup("ismaster").Int32OK()
 	isMaster, _ := q.query.Lookup("isMaster").Int32OK()
 	return ismaster+isMaster > 0
+}
+
+func (q *opQuery) Error() error {
+	return nil
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-msg
@@ -310,6 +321,17 @@ func (m *opMsg) RequestID() int32 {
 	return m.reqID
 }
 
+func (m *opMsg) Error() error {
+	if len(m.sections) == 0 {
+		return nil
+	}
+	single, ok := m.sections[0].(*opMsgSectionSingle)
+	if !ok {
+		return nil
+	}
+	return extractError(single.msg)
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-reply
 type opReply struct {
 	reqID        int32
@@ -386,6 +408,13 @@ func (r *opReply) RequestID() int32 {
 	return r.reqID
 }
 
+func (r *opReply) Error() error {
+	if len(r.documents) == 0 {
+		return nil
+	}
+	return extractError(r.documents[0])
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-get-more
 type opGetMore struct {
 	reqID              int32
@@ -454,6 +483,10 @@ func (g *opGetMore) RequestID() int32 {
 	return g.reqID
 }
 
+func (g *opGetMore) Error() error {
+	return nil
+}
+
 func appendi32(dst []byte, i32 int32) []byte {
 	return append(dst, byte(i32), byte(i32>>8), byte(i32>>16), byte(i32>>24))
 }
@@ -461,4 +494,126 @@ func appendi32(dst []byte, i32 int32) []byte {
 func appendCString(b []byte, str string) []byte {
 	b = append(b, str...)
 	return append(b, 0x00)
+}
+
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/errors.go#L290-L409
+func extractError(rdr bsoncore.Document) error {
+	var errmsg, codeName string
+	var code int32
+	var labels []string
+	var ok bool
+	var wcError driver.WriteCommandError
+	elems, err := rdr.Elements()
+	if err != nil {
+		return err
+	}
+
+	for _, elem := range elems {
+		switch elem.Key() {
+		case "ok":
+			switch elem.Value().Type {
+			case bson.TypeInt32:
+				if elem.Value().Int32() == 1 {
+					ok = true
+				}
+			case bson.TypeInt64:
+				if elem.Value().Int64() == 1 {
+					ok = true
+				}
+			case bson.TypeDouble:
+				if elem.Value().Double() == 1 {
+					ok = true
+				}
+			}
+		case "errmsg":
+			if str, okay := elem.Value().StringValueOK(); okay {
+				errmsg = str
+			}
+		case "codeName":
+			if str, okay := elem.Value().StringValueOK(); okay {
+				codeName = str
+			}
+		case "code":
+			if c, okay := elem.Value().Int32OK(); okay {
+				code = c
+			}
+		case "errorLabels":
+			if arr, okay := elem.Value().ArrayOK(); okay {
+				elems, err := arr.Elements()
+				if err != nil {
+					continue
+				}
+				for _, elem := range elems {
+					if str, ok := elem.Value().StringValueOK(); ok {
+						labels = append(labels, str)
+					}
+				}
+
+			}
+		case "writeErrors":
+			arr, exists := elem.Value().ArrayOK()
+			if !exists {
+				break
+			}
+			vals, err := arr.Values()
+			if err != nil {
+				continue
+			}
+			for _, val := range vals {
+				var we driver.WriteError
+				doc, exists := val.DocumentOK()
+				if !exists {
+					continue
+				}
+				if index, exists := doc.Lookup("index").AsInt64OK(); exists {
+					we.Index = index
+				}
+				if code, exists := doc.Lookup("code").AsInt64OK(); exists {
+					we.Code = code
+				}
+				if msg, exists := doc.Lookup("errmsg").StringValueOK(); exists {
+					we.Message = msg
+				}
+				wcError.WriteErrors = append(wcError.WriteErrors, we)
+			}
+		case "writeConcernError":
+			doc, exists := elem.Value().DocumentOK()
+			if !exists {
+				break
+			}
+			wcError.WriteConcernError = new(driver.WriteConcernError)
+			if code, exists := doc.Lookup("code").AsInt64OK(); exists {
+				wcError.WriteConcernError.Code = code
+			}
+			if name, exists := doc.Lookup("codeName").StringValueOK(); exists {
+				wcError.WriteConcernError.Name = name
+			}
+			if msg, exists := doc.Lookup("errmsg").StringValueOK(); exists {
+				wcError.WriteConcernError.Message = msg
+			}
+			if info, exists := doc.Lookup("errInfo").DocumentOK(); exists {
+				wcError.WriteConcernError.Details = make([]byte, len(info))
+				copy(wcError.WriteConcernError.Details, info)
+			}
+		}
+	}
+
+	if !ok {
+		if errmsg == "" {
+			errmsg = "command failed"
+		}
+
+		return driver.Error{
+			Code:    code,
+			Message: errmsg,
+			Name:    codeName,
+			Labels:  labels,
+		}
+	}
+
+	if len(wcError.WriteErrors) > 0 || wcError.WriteConcernError != nil {
+		return wcError
+	}
+
+	return nil
 }
