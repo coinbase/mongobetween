@@ -184,6 +184,8 @@ func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
 		// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L369-L371
 		if ep, ok := server.(driver.ErrorProcessor); ok {
 			ep.ProcessError(err)
+		} else {
+			m.log.Warn("ErrorProcessor type assertion failed")
 		}
 		return nil, err
 	}
