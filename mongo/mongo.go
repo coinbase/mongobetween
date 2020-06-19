@@ -117,8 +117,8 @@ func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
 	}
 }
 
-func (m *Mongo) TopologyKind() description.TopologyKind {
-	return m.topology.Kind()
+func (m *Mongo) Description() description.Topology {
+	return m.topology.Description()
 }
 
 func (m *Mongo) cursorMonitor() {
@@ -181,6 +181,12 @@ func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
 	// TODO add support for one-way messages (unacked writes)
 	wm, err := m.roundTrip(conn, msg.Wm)
 	if err != nil {
+		// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L369-L371
+		if ep, ok := server.(driver.ErrorProcessor); ok {
+			ep.ProcessError(err)
+		} else {
+			m.log.Warn("ErrorProcessor type assertion failed")
+		}
 		return nil, err
 	}
 
@@ -242,6 +248,7 @@ func (m *Mongo) checkoutConnection(server driver.Server) (conn driver.Connection
 	return conn, nil
 }
 
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L532-L561
 func (m *Mongo) roundTrip(conn driver.Connection, req []byte) (res []byte, err error) {
 	defer func(start time.Time) {
 		addressTag := fmt.Sprintf("address:%s", conn.Address().String())
@@ -252,9 +259,18 @@ func (m *Mongo) roundTrip(conn driver.Connection, req []byte) (res []byte, err e
 		_ = m.statsd.Timing("round_trip", time.Since(start), []string{addressTag, fmt.Sprintf("success:%v", err == nil)}, 1)
 	}(time.Now())
 
-	err = conn.WriteWireMessage(m.roundTripCtx, req)
-	if err != nil {
-		return nil, err
+	if err = conn.WriteWireMessage(m.roundTripCtx, req); err != nil {
+		return nil, wrapNetworkError(err)
 	}
-	return conn.ReadWireMessage(m.roundTripCtx, req[:0])
+
+	if res, err = conn.ReadWireMessage(m.roundTripCtx, req[:0]); err != nil {
+		return nil, wrapNetworkError(err)
+	}
+
+	return res, nil
+}
+
+func wrapNetworkError(err error) error {
+	labels := []string{driver.NetworkError}
+	return driver.Error{Message: err.Error(), Labels: labels, Wrapped: err}
 }
