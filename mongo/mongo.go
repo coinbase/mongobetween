@@ -117,8 +117,8 @@ func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
 	}
 }
 
-func (m *Mongo) TopologyKind() description.TopologyKind {
-	return m.topology.Kind()
+func (m *Mongo) Description() description.Topology {
+	return m.topology.Description()
 }
 
 func (m *Mongo) cursorMonitor() {

@@ -140,7 +140,7 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool) (*mongo.Messag
 	if isMaster {
 		requestID := msg.Op.RequestID()
 		c.log.Debug("Non-proxied ismaster response", zap.Int32("request_id", requestID))
-		return mongo.IsMasterResponse(requestID, c.client.TopologyKind())
+		return mongo.IsMasterResponse(requestID, c.client.Description().Kind)
 	}
 
 	c.log.Debug("Proxying request to upstream server", zap.Int("request_size", len(msg.Wm)))
