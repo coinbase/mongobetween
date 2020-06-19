@@ -81,6 +81,6 @@ Current known missing features:
  - `mongobetween.pool_event.connection_pool_closed` (Counter) - Go driver connection pool closed
 
 ### Background
-`mongobetween` was built to address a connection storm issue between a high scale Rails app and MongoDB. Due to Ruby MRI's global interpreter lock, multi-threaded web applications don't utilize multiple CPU cores. To achieve better CPU utilization, Puma is run with multiple workers (processes), each of which need a separate MongoDB connection pool. This leads to a large number of connections to MongoDB, sometimes exceeding MongoDB's upstream connection limit of 128k connections.
+`mongobetween` was built to address a connection storm issue between a high scale Rails app and MongoDB (see [blog post](https://blog.coinbase.com/scaling-connections-with-ruby-and-mongodb-99204dbf8857)). Due to Ruby MRI's global interpreter lock, multi-threaded web applications don't utilize multiple CPU cores. To achieve better CPU utilization, Puma is run with multiple workers (processes), each of which need a separate MongoDB connection pool. This leads to a large number of connections to MongoDB, sometimes exceeding MongoDB's upstream connection limit of 128k connections.
 
 `mongobetween` has reduced connection counts by an order of magnitude, spikes of up to 30k connections are now reduced to around 2k. It has also significantly reduced `ismaster` commands on the cluster, as there's only a single monitor goroutine per `mongobetween` process, instead of a monitor thread for each Ruby process.
