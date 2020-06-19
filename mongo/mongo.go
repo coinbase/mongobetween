@@ -71,8 +71,9 @@ func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, pi
 	}
 
 	t := extractTopology(c)
-	rtCtx, rtCancel := context.WithCancel(context.Background())
+	go topologyMonitor(log, t)
 
+	rtCtx, rtCancel := context.WithCancel(context.Background())
 	m := Mongo{
 		log:             log,
 		statsd:          sd,
