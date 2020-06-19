@@ -21,7 +21,7 @@ type Operation interface {
 	RequestID() int32
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/operation.go#L1162-L1227
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1165-L1230
 func Decode(wm []byte) (Operation, error) {
 	wmLength := len(wm)
 	length, reqID, _, opCode, wmBody, ok := wiremessage.ReadHeader(wm)
@@ -100,7 +100,7 @@ type opQuery struct {
 	returnFieldsSelector bsoncore.Document
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/topology/server_test.go#L303-L338
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/topology/server_test.go#L302-L337
 func decodeQuery(reqID int32, wm []byte) (*opQuery, error) {
 	var ok bool
 	q := opQuery{
@@ -146,7 +146,7 @@ func (q *opQuery) OpCode() wiremessage.OpCode {
 	return wiremessage.OpQuery
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/operation_legacy.go#L172-L184
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation_legacy.go#L172-L184
 func (q *opQuery) Encode(responseTo int32) []byte {
 	var buffer []byte
 	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpQuery)
@@ -235,7 +235,7 @@ func (o *opMsgSectionSequence) append(buffer []byte) []byte {
 	return buffer
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/operation.go#L1189-L1216
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1191-L1220
 func decodeMsg(reqID int32, wm []byte) (*opMsg, error) {
 	var ok bool
 	m := opMsg{
@@ -281,7 +281,7 @@ func (m *opMsg) OpCode() wiremessage.OpCode {
 	return wiremessage.OpMsg
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/operation.go#L737-L743
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L740-L746
 func (m *opMsg) Encode(responseTo int32) []byte {
 	var buffer []byte
 	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpMsg)
@@ -320,7 +320,7 @@ type opReply struct {
 	documents    []bsoncore.Document
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/operation.go#L1098-L1159
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1101-L1162
 func decodeReply(reqID int32, wm []byte) (*opReply, error) {
 	var ok bool
 	r := opReply{
@@ -359,7 +359,7 @@ func (r *opReply) OpCode() wiremessage.OpCode {
 	return wiremessage.OpReply
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/drivertest/channel_conn.go#L68-L77
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/drivertest/channel_conn.go#L68-L77
 func (r *opReply) Encode(responseTo int32) []byte {
 	var buffer []byte
 	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpReply)
@@ -394,7 +394,7 @@ type opGetMore struct {
 	cursorID           int64
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/operation.go#L1098-L1159
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1101-L1162
 func decodeGetMore(reqID int32, wm []byte) (*opGetMore, error) {
 	var ok bool
 	g := opGetMore{
@@ -430,7 +430,7 @@ func (g *opGetMore) OpCode() wiremessage.OpCode {
 	return wiremessage.OpGetMore
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.2/x/mongo/driver/operation_legacy.go#L270-L277
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation_legacy.go#L270-L277
 func (g *opGetMore) Encode(responseTo int32) []byte {
 	var buffer []byte
 	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpGetMore)
