@@ -261,10 +261,9 @@ func (m *Mongo) checkoutConnection(server driver.Server) (conn driver.Connection
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L532-L561
 func (m *Mongo) roundTrip(conn driver.Connection, req []byte, unacknowledged bool) (res []byte, err error) {
 	defer func(start time.Time) {
-		addressTag := fmt.Sprintf("address:%s", conn.Address().String())
-		tags := []string{addressTag}
-		if unacknowledged {
-			tags = append(tags, "unacknowledged:true")
+		tags := []string{
+			fmt.Sprintf("address:%s", conn.Address().String()),
+			fmt.Sprintf("unacknowledged:%v", unacknowledged),
 		}
 
 		_ = m.statsd.Distribution("request_size", float64(len(req)), tags, 1)
