@@ -113,6 +113,24 @@ func TestOpMsgCursorID(t *testing.T) {
 	assert.Equal(t, int64(103), cursorID)
 }
 
+func TestOpMsgNoError(t *testing.T) {
+	doc1, err := bson.Marshal(bson.D{{Key: "getMore", Value: int64(102)}, {Key: "ok", Value: int32(1)}})
+	assert.Nil(t, err)
+
+	op := opMsg{sections: []opMsgSection{&opMsgSectionSingle{doc1}}}
+	err = op.Error()
+	assert.Nil(t, err)
+}
+
+func TestOpMsgError(t *testing.T) {
+	doc1, err := bson.Marshal(bson.D{{Key: "code", Value: int32(11600)}})
+	assert.Nil(t, err)
+
+	op := opMsg{sections: []opMsgSection{&opMsgSectionSingle{doc1}}}
+	err = op.Error()
+	assert.Error(t, err)
+}
+
 func TestOpReply(t *testing.T) {
 	doc1, err := bson.Marshal(bson.D{{Key: "name", Value: "Misty"}})
 	assert.Nil(t, err)
