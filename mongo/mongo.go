@@ -184,11 +184,13 @@ func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
 		return nil, errors.New("server ErrorProcessor type assertion failed")
 	}
 
-	// TODO add support for one-way messages (unacked writes)
-	wm, err := m.roundTrip(conn, msg.Wm)
+	wm, err := m.roundTrip(conn, msg.Wm, msg.Op.Unacknowledged())
 	if err != nil {
 		ep.ProcessError(err)
 		return nil, err
+	}
+	if msg.Op.Unacknowledged() {
+		return &Message{}, nil
 	}
 
 	op, err := Decode(wm)
@@ -257,18 +259,29 @@ func (m *Mongo) checkoutConnection(server driver.Server) (conn driver.Connection
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L532-L561
-func (m *Mongo) roundTrip(conn driver.Connection, req []byte) (res []byte, err error) {
+func (m *Mongo) roundTrip(conn driver.Connection, req []byte, unacknowledged bool) (res []byte, err error) {
 	defer func(start time.Time) {
-		addressTag := fmt.Sprintf("address:%s", conn.Address().String())
-		_ = m.statsd.Distribution("request_size", float64(len(req)), []string{addressTag}, 1)
-		if err == nil {
-			_ = m.statsd.Distribution("response_size", float64(len(res)), []string{addressTag}, 1)
+		tags := []string{
+			fmt.Sprintf("address:%s", conn.Address().String()),
+			fmt.Sprintf("unacknowledged:%v", unacknowledged),
 		}
-		_ = m.statsd.Timing("round_trip", time.Since(start), []string{addressTag, fmt.Sprintf("success:%v", err == nil)}, 1)
+
+		_ = m.statsd.Distribution("request_size", float64(len(req)), tags, 1)
+		if err == nil && !unacknowledged {
+			// There is no response size for unacknowledged writes.
+			_ = m.statsd.Distribution("response_size", float64(len(res)), tags, 1)
+		}
+
+		roundTripTags := append(tags, fmt.Sprintf("success:%v", err == nil))
+		_ = m.statsd.Timing("round_trip", time.Since(start), roundTripTags, 1)
 	}(time.Now())
 
 	if err = conn.WriteWireMessage(m.roundTripCtx, req); err != nil {
 		return nil, wrapNetworkError(err)
+	}
+
+	if unacknowledged {
+		return nil, nil
 	}
 
 	if res, err = conn.ReadWireMessage(m.roundTripCtx, req[:0]); err != nil {

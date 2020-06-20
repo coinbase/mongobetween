@@ -3,6 +3,7 @@ package mongo
 import (
 	"errors"
 	"fmt"
+
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 
@@ -22,6 +23,7 @@ type Operation interface {
 	CursorID() (cursorID int64, ok bool)
 	RequestID() int32
 	Error() error
+	Unacknowledged() bool
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1165-L1230
@@ -94,6 +96,10 @@ func (o *opUnknown) RequestID() int32 {
 
 func (o *opUnknown) Error() error {
 	return nil
+}
+
+func (o *opUnknown) Unacknowledged() bool {
+	return false
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#wire-op-query
@@ -189,6 +195,10 @@ func (q *opQuery) IsIsMaster() bool {
 
 func (q *opQuery) Error() error {
 	return nil
+}
+
+func (q *opQuery) Unacknowledged() bool {
+	return false
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-msg
@@ -332,6 +342,10 @@ func (m *opMsg) Error() error {
 	return extractError(single.msg)
 }
 
+func (m *opMsg) Unacknowledged() bool {
+	return m.flags&wiremessage.MoreToCome == wiremessage.MoreToCome
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-reply
 type opReply struct {
 	reqID        int32
@@ -415,6 +429,10 @@ func (r *opReply) Error() error {
 	return extractError(r.documents[0])
 }
 
+func (r *opReply) Unacknowledged() bool {
+	return false
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-get-more
 type opGetMore struct {
 	reqID              int32
@@ -485,6 +503,10 @@ func (g *opGetMore) RequestID() int32 {
 
 func (g *opGetMore) Error() error {
 	return nil
+}
+
+func (g *opGetMore) Unacknowledged() bool {
+	return false
 }
 
 func appendi32(dst []byte, i32 int32) []byte {
