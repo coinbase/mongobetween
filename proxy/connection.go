@@ -101,6 +101,11 @@ func (c *connection) handleMessage() (err error) {
 		)
 		return
 	}
+	if req.Op.Unacknowledged() {
+		c.log.Debug("Unacknowledged request", zap.Int32("op_code", int32(resOpCode)))
+		return
+	}
+
 	resOpCode = res.Op.OpCode()
 
 	if _, err = c.conn.Write(res.Wm); err != nil {

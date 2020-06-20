@@ -55,7 +55,6 @@ The `label` query parameter in the connection URI is used to any tag statsd metr
 
 Current known missing features:
  - [ ] Transaction server pinning
- - [ ] Unacked writes (one-way messages)
  - [ ] Different cursors on separate servers with the same cursor ID value
 
 ### Statsd

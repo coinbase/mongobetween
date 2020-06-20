@@ -184,11 +184,18 @@ func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
 		return nil, errors.New("server ErrorProcessor type assertion failed")
 	}
 
-	// TODO add support for one-way messages (unacked writes)
-	wm, err := m.roundTrip(conn, msg.Wm)
+	var wm []byte
+	if msg.Op.Unacknowledged() {
+		err = m.unacknowledgedRoundTrip(conn, msg.Wm)
+	} else {
+		wm, err = m.roundTrip(conn, msg.Wm)
+	}
 	if err != nil {
 		ep.ProcessError(err)
 		return nil, err
+	}
+	if msg.Op.Unacknowledged() {
+		return &Message{}, nil
 	}
 
 	op, err := Decode(wm)
@@ -254,6 +261,14 @@ func (m *Mongo) checkoutConnection(server driver.Server) (conn driver.Connection
 	}
 
 	return conn, nil
+}
+
+func (m *Mongo) unacknowledgedRoundTrip(conn driver.Connection, req []byte) (err error) {
+	if err = conn.WriteWireMessage(m.roundTripCtx, req); err != nil {
+		return wrapNetworkError(err)
+	}
+
+	return nil
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L532-L561
