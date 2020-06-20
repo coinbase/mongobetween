@@ -264,6 +264,9 @@ func (m *Mongo) checkoutConnection(server driver.Server) (conn driver.Connection
 }
 
 func (m *Mongo) unacknowledgedRoundTrip(conn driver.Connection, req []byte) (err error) {
+	addressTag := getStatsAddressTag(conn)
+	_ = m.statsd.Distribution("request_size", float64(len(req)), []string{addressTag}, 1)
+
 	if err = conn.WriteWireMessage(m.roundTripCtx, req); err != nil {
 		return wrapNetworkError(err)
 	}
@@ -274,7 +277,7 @@ func (m *Mongo) unacknowledgedRoundTrip(conn driver.Connection, req []byte) (err
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L532-L561
 func (m *Mongo) roundTrip(conn driver.Connection, req []byte) (res []byte, err error) {
 	defer func(start time.Time) {
-		addressTag := fmt.Sprintf("address:%s", conn.Address().String())
+		addressTag := getStatsAddressTag(conn)
 		_ = m.statsd.Distribution("request_size", float64(len(req)), []string{addressTag}, 1)
 		if err == nil {
 			_ = m.statsd.Distribution("response_size", float64(len(res)), []string{addressTag}, 1)
@@ -296,4 +299,8 @@ func (m *Mongo) roundTrip(conn driver.Connection, req []byte) (res []byte, err e
 func wrapNetworkError(err error) error {
 	labels := []string{driver.NetworkError}
 	return driver.Error{Message: err.Error(), Labels: labels, Wrapped: err}
+}
+
+func getStatsAddressTag(conn driver.Connection) string {
+	return fmt.Sprintf("address:%s", conn.Address().String())
 }
