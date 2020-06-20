@@ -59,7 +59,8 @@ Current known missing features:
 
 ### Statsd
 `mongobetween` supports reporting health metrics to a local statsd sidecar, using the [Datadog Go library](github.com/DataDog/datadog-go). By default it reports to `localhost:8125`. The following metrics are reported:
- - `mongobetween.handle_message` (Timing) - round trip time of handling an incoming message from the application
+ - `mongobetween.handle_message` (Timing) - end-to-end time handling an incoming message from the application
+ - `mongobetween.round_trip` (Timing) - round trip time sending a request and receiving a response from MongoDB
  - `mongobetween.request_size` (Distribution) - request size to MongoDB
  - `mongobetween.response_size` (Distribution) - response size from MongoDB
  - `mongobetween.open_connections` (Gauge) - number of open connections between the proxy and the application
