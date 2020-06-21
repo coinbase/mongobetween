@@ -3,7 +3,7 @@ package mongo
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 
 	"github.com/coinbase/mongobetween/lruttl"
 )
@@ -28,15 +28,15 @@ func (c *cursorCache) count() int {
 	return c.c.Len()
 }
 
-func (c *cursorCache) peek(cursorID int64) (server driver.Server, ok bool) {
+func (c *cursorCache) peek(cursorID int64) (server *topology.SelectedServer, ok bool) {
 	v, ok := c.c.Peek(cursorID)
 	if !ok {
 		return
 	}
-	return v.(driver.Server), true
+	return v.(*topology.SelectedServer), true
 }
 
-func (c *cursorCache) add(cursorID int64, server driver.Server) {
+func (c *cursorCache) add(cursorID int64, server *topology.SelectedServer) {
 	c.c.Add(cursorID, server)
 }
 

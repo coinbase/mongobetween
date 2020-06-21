@@ -1,6 +1,7 @@
 package mongo_test
 
 import (
+	"errors"
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/coinbase/mongobetween/mongo"
 	"github.com/coinbase/mongobetween/proxy"
@@ -11,9 +12,12 @@ import (
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/description"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
 	"os"
+	"sync"
 	"testing"
+	"time"
 )
 
 func insertOpMsg(t *testing.T) *mongo.Message {
@@ -42,11 +46,28 @@ func insertOpMsg(t *testing.T) *mongo.Message {
 	return mongo.NewOpMsg(insert, []bsoncore.Document{doc1, doc2})
 }
 
-func TestRoundTrip(t *testing.T) {
-	uri := "mongodb://localhost:27017/test"
+func slowQuery(t *testing.T) *mongo.Message {
+	find, err := bson.Marshal(bson.D{
+		{Key: "find", Value: "trainers"},
+		{Key: "filter", Value: bson.D{{Key: "$where", Value: "sleep(10000) || true"}}},
+		{Key: "limit", Value: 1},
+		{Key: "singleBatch", Value: true},
+		{Key: "$db", Value: "test"},
+	})
+	assert.Nil(t, err)
+
+	return mongo.NewOpMsg(find, []bsoncore.Document{})
+}
+
+func serverAddress() string {
 	if os.Getenv("CI") == "true" {
-		uri = "mongodb://mongo:27017/test"
+		return "mongodb://mongo:27017/test"
 	}
+	return "mongodb://localhost:27017/test"
+}
+
+func TestRoundTrip(t *testing.T) {
+	uri := serverAddress()
 
 	sd, err := statsd.New("localhost:8125")
 	assert.Nil(t, err)
@@ -66,11 +87,43 @@ func TestRoundTrip(t *testing.T) {
 	assert.Equal(t, 1.0, single.Lookup("ok").Double())
 }
 
-func TestRoundTripProcessError(t *testing.T) {
-	uri := "mongodb://localhost:27017/test"
-	if os.Getenv("CI") == "true" {
-		uri = "mongodb://mongo:27017/test"
+func TestRoundTripSharedContext(t *testing.T) {
+	uri := serverAddress()
+
+	sd, err := statsd.New("localhost:8125")
+	assert.Nil(t, err)
+
+	clientOptions := options.Client().ApplyURI(uri)
+	clientOptions.SetMaxPoolSize(10)
+	m, err := mongo.Connect(zap.L(), sd, clientOptions, true)
+	assert.Nil(t, err)
+
+	msg := slowQuery(t)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			_, err := m.RoundTrip(msg)
+			assert.Regexp(t, "incomplete read of message header: read tcp", err)
+			assert.Regexp(t, "i/o timeout", err)
+
+			wg.Done()
+		}()
 	}
+
+	time.Sleep(200 * time.Millisecond)
+	s := mongo.SelectServer(t, m)
+
+	err = errors.New("some network error occurred")
+	fakeError := topology.ConnectionError{Wrapped: err}
+	s.ProcessError(fakeError)
+
+	wg.Wait()
+}
+
+func TestRoundTripProcessError(t *testing.T) {
+	uri := serverAddress()
 
 	sd, err := statsd.New("localhost:8125")
 	assert.Nil(t, err)
