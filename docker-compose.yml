@@ -1,8 +1,13 @@
 version: "3.7"
 
 services:
-  mongodb:
+  mongo:
     image: "mongo:4.0"
     ports:
       - "27017:27017"
     command: mongod --smallfiles
+  toxiproxy:
+    image: "shopify/toxiproxy:2.1.4"
+    ports:
+      - "8474:8474"
+      - "27011:27011"

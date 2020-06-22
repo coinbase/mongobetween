@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/DataDog/datadog-go v3.7.1+incompatible
+	github.com/Shopify/toxiproxy v2.1.4+incompatible
 	github.com/google/go-cmp v0.3.0 // indirect
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

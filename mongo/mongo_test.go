@@ -1,10 +1,10 @@
-package mongo_test
+package mongo
 
 import (
+	"context"
 	"errors"
 	"github.com/DataDog/datadog-go/statsd"
-	"github.com/coinbase/mongobetween/mongo"
-	"github.com/coinbase/mongobetween/proxy"
+	"github.com/Shopify/toxiproxy/client"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -20,7 +20,29 @@ import (
 	"time"
 )
 
-func insertOpMsg(t *testing.T) *mongo.Message {
+func newOpMsg(single bsoncore.Document, sequence []bsoncore.Document) *Message {
+	sections := []opMsgSection{&opMsgSectionSingle{single}}
+	if len(sequence) > 0 {
+		sections = append(sections, &opMsgSectionSequence{
+			identifier: "documents",
+			msgs:       sequence,
+		})
+	}
+	op := opMsg{sections: sections}
+	wm := op.Encode(0)
+	return &Message{wm, &op}
+}
+
+func extractSingleOpMsg(t *testing.T, msg *Message) bsoncore.Document {
+	op, ok := msg.Op.(*opMsg)
+	assert.True(t, ok)
+	assert.Equal(t, 1, len(op.sections))
+	single, ok := op.sections[0].(*opMsgSectionSingle)
+	assert.True(t, ok)
+	return single.msg
+}
+
+func insertOpMsg(t *testing.T) *Message {
 	insert, err := bson.Marshal(bson.D{
 		{Key: "insert", Value: "trainers"},
 		{Key: "$db", Value: "test"},
@@ -43,10 +65,10 @@ func insertOpMsg(t *testing.T) *mongo.Message {
 	})
 	assert.Nil(t, err)
 
-	return mongo.NewOpMsg(insert, []bsoncore.Document{doc1, doc2})
+	return newOpMsg(insert, []bsoncore.Document{doc1, doc2})
 }
 
-func slowQuery(t *testing.T) *mongo.Message {
+func slowQuery(t *testing.T) *Message {
 	find, err := bson.Marshal(bson.D{
 		{Key: "find", Value: "trainers"},
 		{Key: "filter", Value: bson.D{{Key: "$where", Value: "sleep(10000) || true"}}},
@@ -56,7 +78,7 @@ func slowQuery(t *testing.T) *mongo.Message {
 	})
 	assert.Nil(t, err)
 
-	return mongo.NewOpMsg(find, []bsoncore.Document{})
+	return newOpMsg(find, []bsoncore.Document{})
 }
 
 func serverAddress() string {
@@ -66,14 +88,27 @@ func serverAddress() string {
 	return "mongodb://localhost:27017/test"
 }
 
-func TestRoundTrip(t *testing.T) {
-	uri := serverAddress()
+func toxiproxyAddress() string {
+	if os.Getenv("CI") == "true" {
+		return "mongodb://toxiproxy:27011/test"
+	}
+	return "mongodb://localhost:27011/test"
+}
 
+func toxiproxyClient() *toxiproxy.Client {
+	if os.Getenv("CI") == "true" {
+		return toxiproxy.NewClient("toxiproxy:8474")
+	}
+	return toxiproxy.NewClient("localhost:8474")
+}
+
+func TestRoundTrip(t *testing.T) {
 	sd, err := statsd.New("localhost:8125")
 	assert.Nil(t, err)
 
+	uri := serverAddress()
 	clientOptions := options.Client().ApplyURI(uri)
-	m, err := mongo.Connect(zap.L(), sd, clientOptions, false)
+	m, err := Connect(zap.L(), sd, clientOptions, false)
 	assert.Nil(t, err)
 
 	msg := insertOpMsg(t)
@@ -81,21 +116,27 @@ func TestRoundTrip(t *testing.T) {
 	res, err := m.RoundTrip(msg)
 	assert.Nil(t, err)
 
-	single := mongo.ExtractSingleOpMsg(t, res)
+	single := extractSingleOpMsg(t, res)
 
 	assert.Equal(t, int32(2), single.Lookup("n").Int32())
 	assert.Equal(t, 1.0, single.Lookup("ok").Double())
 }
 
 func TestRoundTripSharedContext(t *testing.T) {
-	uri := serverAddress()
+	tp, err := toxiproxyClient().CreateProxy("mongo", "0.0.0.0:27011", "mongo:27017")
+	assert.Nil(t, err)
+	defer func() {
+		err := tp.Delete()
+		assert.Nil(t, err)
+	}()
 
 	sd, err := statsd.New("localhost:8125")
 	assert.Nil(t, err)
 
+	uri := toxiproxyAddress()
 	clientOptions := options.Client().ApplyURI(uri)
 	clientOptions.SetMaxPoolSize(10)
-	m, err := mongo.Connect(zap.L(), sd, clientOptions, true)
+	m, err := Connect(zap.L(), sd, clientOptions, true)
 	assert.Nil(t, err)
 
 	msg := slowQuery(t)
@@ -113,7 +154,11 @@ func TestRoundTripSharedContext(t *testing.T) {
 	}
 
 	time.Sleep(200 * time.Millisecond)
-	s := mongo.SelectServer(t, m)
+	s, err := m.selectServer(context.Background(), 0)
+	assert.Nil(t, err)
+
+	_, err = tp.AddToxic("latency_down", "latency", "downstream", 1.0, toxiproxy.Attributes{"latency": 1000})
+	assert.Nil(t, err)
 
 	err = errors.New("some network error occurred")
 	fakeError := topology.ConnectionError{Wrapped: err}
@@ -123,22 +168,19 @@ func TestRoundTripSharedContext(t *testing.T) {
 }
 
 func TestRoundTripProcessError(t *testing.T) {
-	uri := serverAddress()
+	tp, err := toxiproxyClient().CreateProxy("mongo", "0.0.0.0:27011", "mongo:27017")
+	assert.Nil(t, err)
+	defer func() {
+		err := tp.Delete()
+		assert.Nil(t, err)
+	}()
 
 	sd, err := statsd.New("localhost:8125")
 	assert.Nil(t, err)
 
-	opts := options.Client().ApplyURI(uri)
-	p, err := proxy.NewProxy(zap.L(), sd, "label", "tcp4", ":27019", false, true, opts)
-	assert.Nil(t, err)
-
-	go func() {
-		err := p.Run()
-		assert.Nil(t, err)
-	}()
-
-	clientOptions := options.Client().ApplyURI("mongodb://localhost:27019/test")
-	m, err := mongo.Connect(zap.L(), sd, clientOptions, false)
+	uri := toxiproxyAddress()
+	clientOptions := options.Client().ApplyURI(uri)
+	m, err := Connect(zap.L(), sd, clientOptions, false)
 	assert.Nil(t, err)
 
 	msg := insertOpMsg(t)
@@ -146,15 +188,15 @@ func TestRoundTripProcessError(t *testing.T) {
 	res, err := m.RoundTrip(msg)
 	assert.Nil(t, err)
 
-	single := mongo.ExtractSingleOpMsg(t, res)
+	single := extractSingleOpMsg(t, res)
 
 	assert.Equal(t, int32(2), single.Lookup("n").Int32())
 	assert.Equal(t, 1.0, single.Lookup("ok").Double())
 
 	assert.Equal(t, description.Standalone, m.Description().Servers[0].Kind)
 
-	// kill the proxy
-	p.Kill()
+	err = tp.Disable()
+	assert.Nil(t, err)
 
 	_, err = m.RoundTrip(msg)
 	assert.Error(t, driver.Error{}, err)

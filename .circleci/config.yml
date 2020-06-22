@@ -5,6 +5,8 @@ jobs:
       - image: circleci/golang:1.14
       - image: circleci/mongo:4.0
         name: mongo
+      - image: shopify/toxiproxy:2.1.4
+        name: toxiproxy
     steps:
       - checkout
 
