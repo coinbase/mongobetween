@@ -1,7 +1,6 @@
 package mongo
 
 import (
-	"context"
 	"errors"
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/Shopify/toxiproxy/client"
@@ -154,7 +153,7 @@ func TestRoundTripSharedContext(t *testing.T) {
 	}
 
 	time.Sleep(200 * time.Millisecond)
-	s, err := m.selectServer(context.Background(), 0)
+	s, err := m.selectServer(0)
 	assert.Nil(t, err)
 
 	_, err = tp.AddToxic("latency_down", "latency", "downstream", 1.0, toxiproxy.Attributes{"latency": 1000})
