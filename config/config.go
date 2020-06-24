@@ -210,9 +210,11 @@ func clientOptions(uri, username, password string) (string, *options.ClientOptio
 }
 
 func uriWorkaround(uri, username string) string {
-	// Workaround for a bug in the Go Mongo driver URI parsing where you can't set a URI without
-	// setting the username ("error parsing uri: authsource without username is invalid"). This
-	// method force-adds a username in the URI, which can be overridden using SetAuth().
+	// Workaround for a feature in the Mongo driver URI parsing where you can't set a URI
+	// without setting the username ("error parsing uri: authsource without username is
+	// invalid"). This method force-adds a username in the URI, which can be overridden
+	// using SetAuth(). This workaround can be removed once the 1.4 driver is released
+	// (see https://jira.mongodb.org/browse/GODRIVER-1473).
 	if !strings.Contains(uri, "@") && username != "" {
 		split := strings.SplitN(uri, "//", 2)
 		if len(split) == 2 {
