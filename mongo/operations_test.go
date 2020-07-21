@@ -93,6 +93,19 @@ func TestOpMsg(t *testing.T) {
 	assert.Equal(t, doc2, []byte(sequence.msgs[1]))
 }
 
+func TestOpMsgIsIsMaster(t *testing.T) {
+	doc, err := bson.Marshal(bson.D{
+		{Key: "ismaster", Value: 1},
+		{Key: "$db", Value: "admin"},
+	})
+	assert.Nil(t, err)
+
+	op := opMsg{
+		sections: []opMsgSection{&opMsgSectionSingle{msg: doc}},
+	}
+	assert.True(t, op.IsIsMaster())
+}
+
 func TestOpMsgCursorID(t *testing.T) {
 	doc1, err := bson.Marshal(bson.D{{Key: "getMore", Value: int64(102)}})
 	assert.Nil(t, err)
