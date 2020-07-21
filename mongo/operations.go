@@ -210,6 +210,7 @@ type opMsg struct {
 
 type opMsgSection interface {
 	cursorID() (cursorID int64, ok bool)
+	isIsMaster() bool
 	append(buffer []byte) []byte
 }
 
@@ -222,6 +223,15 @@ func (o *opMsgSectionSingle) cursorID() (cursorID int64, ok bool) {
 		return getMore, ok
 	}
 	return o.msg.Lookup("cursor", "id").Int64OK()
+}
+
+func (o *opMsgSectionSingle) isIsMaster() bool {
+	if db, ok := o.msg.Lookup("$db").StringValueOK(); ok && db == "admin" {
+		ismaster, _ := o.msg.Lookup("ismaster").Int32OK()
+		isMaster, _ := o.msg.Lookup("isMaster").Int32OK()
+		return ismaster+isMaster > 0
+	}
+	return false
 }
 
 func (o *opMsgSectionSingle) append(buffer []byte) []byte {
@@ -237,6 +247,10 @@ type opMsgSectionSequence struct {
 func (o *opMsgSectionSequence) cursorID() (cursorID int64, ok bool) {
 	// assume no cursor IDs are returned in OP_MSG document sequences
 	return 0, false
+}
+
+func (o *opMsgSectionSequence) isIsMaster() bool {
+	return false
 }
 
 func (o *opMsgSectionSequence) append(buffer []byte) []byte {
@@ -315,6 +329,11 @@ func (m *opMsg) Encode(responseTo int32) []byte {
 }
 
 func (m *opMsg) IsIsMaster() bool {
+	for _, section := range m.sections {
+		if section.isIsMaster() {
+			return true
+		}
+	}
 	return false
 }
 
