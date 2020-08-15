@@ -204,8 +204,8 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 
 	wm, err := m.roundTrip(conn, msg.Wm, msg.Op.Unacknowledged())
 	if err != nil {
-		m.processError(err, ep, addr)
-		return nil, err
+		_ = m.processError(err, ep, addr)
+		return fakeError(msg.Op.RequestID(), err)
 	}
 	if msg.Op.Unacknowledged() {
 		return &Message{}, nil
@@ -218,9 +218,9 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 
 	// check if an error is returned in the server response
 	opErr := op.Error()
-	if opErr != nil {
-		// process the error, but don't return it as we still want to forward the response to the client
-		m.processError(opErr, ep, addr)
+	if opErr != nil && m.processError(opErr, ep, addr) {
+		// return a fake error in place of the original error if it changes the topology
+		return fakeError(msg.Op.RequestID(), opErr)
 	}
 
 	if responseCursorID, ok := op.CursorID(); ok {
@@ -315,7 +315,7 @@ func wrapNetworkError(err error) error {
 }
 
 // Process the error with the given ErrorProcessor, returning true if processing causes the topology to change
-func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.Address) {
+func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.Address) bool {
 	last := m.Description()
 
 	ep.ProcessError(err)
@@ -335,7 +335,21 @@ func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.A
 			fields = append(fields, zap.Int64("error_code", werr.Code))
 		}
 		m.log.Error("Topology changing error", fields...)
+
+		return true
 	}
+
+	return false
+}
+
+func fakeError(responseTo int32, err error) (*Message, error) {
+	// fake an InterruptedDueToShutdown error (prevents the application from draining its connection pool)
+	msg, e := InterruptedDueToShutdownResponse(responseTo)
+	if e != nil {
+		// return original error
+		return nil, err
+	}
+	return msg, nil
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.5/x/mongo/driver/topology/server.go#L300-L341
