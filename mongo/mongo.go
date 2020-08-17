@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"reflect"
 	"regexp"
 	"strings"
@@ -203,7 +204,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 
 	wm, err := m.roundTrip(conn, msg.Wm, msg.Op.Unacknowledged())
 	if err != nil {
-		ep.ProcessError(err)
+		m.processError(err, ep, addr)
 		return nil, err
 	}
 	if msg.Op.Unacknowledged() {
@@ -219,7 +220,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 	opErr := op.Error()
 	if opErr != nil {
 		// process the error, but don't return it as we still want to forward the response to the client
-		ep.ProcessError(opErr)
+		m.processError(opErr, ep, addr)
 	}
 
 	if responseCursorID, ok := op.CursorID(); ok {
@@ -311,4 +312,73 @@ func (m *Mongo) roundTrip(conn driver.Connection, req []byte, unacknowledged boo
 func wrapNetworkError(err error) error {
 	labels := []string{driver.NetworkError}
 	return driver.Error{Message: err.Error(), Labels: labels, Wrapped: err}
+}
+
+// Process the error with the given ErrorProcessor, returning true if processing causes the topology to change
+func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.Address) {
+	last := m.Description()
+
+	ep.ProcessError(err)
+
+	if errorChangesTopology(err) {
+		desc := m.Description()
+
+		fields := topologyChangedFields(&last, &desc)
+		fields = append(fields, zap.String("address", addr.String()))
+		fields = append(fields, zap.Error(err))
+		if derr, ok := err.(driver.Error); ok {
+			fields = append(fields, zap.Int32("error_code", derr.Code))
+			fields = append(fields, zap.Strings("error_labels", derr.Labels))
+			fields = append(fields, zap.NamedError("error_wrapped", derr.Wrapped))
+		}
+		if werr, ok := err.(driver.WriteConcernError); ok {
+			fields = append(fields, zap.Int64("error_code", werr.Code))
+		}
+		m.log.Error("Topology changing error", fields...)
+	}
+}
+
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.5/x/mongo/driver/topology/server.go#L300-L341
+func errorChangesTopology(err error) bool {
+	if cerr, ok := err.(driver.Error); ok && (cerr.NodeIsRecovering() || cerr.NotMaster()) {
+		return true
+	}
+	if wcerr, ok := err.(driver.WriteConcernError); ok && (wcerr.NodeIsRecovering() || wcerr.NotMaster()) {
+		return true
+	}
+
+	wrappedConnErr := unwrapConnectionError(err)
+	if wrappedConnErr == nil {
+		return false
+	}
+
+	// Ignore transient timeout errors.
+	if netErr, ok := wrappedConnErr.(net.Error); ok && netErr.Timeout() {
+		return false
+	}
+	if wrappedConnErr == context.Canceled || wrappedConnErr == context.DeadlineExceeded {
+		return false
+	}
+
+	return true
+}
+
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.5/x/mongo/driver/topology/server.go#L605-L625
+func unwrapConnectionError(err error) error {
+	connErr, ok := err.(topology.ConnectionError)
+	if ok {
+		return connErr.Wrapped
+	}
+
+	driverErr, ok := err.(driver.Error)
+	if !ok || !driverErr.NetworkError() {
+		return nil
+	}
+
+	connErr, ok = driverErr.Wrapped.(topology.ConnectionError)
+	if ok {
+		return connErr.Wrapped
+	}
+
+	return nil
 }
