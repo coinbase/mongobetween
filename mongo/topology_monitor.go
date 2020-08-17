@@ -2,10 +2,12 @@ package mongo
 
 import (
 	"fmt"
+	"sort"
+	"time"
+
 	"go.mongodb.org/mongo-driver/x/mongo/driver/description"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
-	"time"
 )
 
 func topologyMonitor(log *zap.Logger, t *topology.Topology) {
@@ -14,22 +16,38 @@ func topologyMonitor(log *zap.Logger, t *topology.Topology) {
 		time.Sleep(5 * time.Second)
 		desc := t.Description()
 		if !topologyDescriptionEqual(&last, &desc) {
-			fields := []zap.Field{
-				zap.String("old_kind", last.Kind.String()),
-				zap.String("new_kind", desc.Kind.String()),
-			}
-			for i, s := range last.Servers {
-				fields = append(fields, zap.String(fmt.Sprintf("old_address_%d", i), s.Addr.String()))
-				fields = append(fields, zap.String(fmt.Sprintf("old_kind_%d", i), s.Kind.String()))
-			}
-			for i, s := range desc.Servers {
-				fields = append(fields, zap.String(fmt.Sprintf("new_address_%d", i), s.Addr.String()))
-				fields = append(fields, zap.String(fmt.Sprintf("new_kind_%d", i), s.Kind.String()))
-			}
-			log.Info("Topology changed", fields...)
+			log.Info("Topology changed", topologyChangedFields(&last, &desc)...)
 		}
 		last = desc
 	}
+}
+
+func topologyChangedFields(last, desc *description.Topology) (fields []zap.Field) {
+	fields = append(fields, zap.String("old_kind", last.Kind.String()))
+	fields = append(fields, zap.String("new_kind", desc.Kind.String()))
+
+	lastServers := sortServers(last.Servers)
+	descServers := sortServers(desc.Servers)
+
+	for i, s := range lastServers {
+		fields = append(fields, zap.String(fmt.Sprintf("old_address_%d", i), s.Addr.String()))
+		fields = append(fields, zap.String(fmt.Sprintf("old_kind_%d", i), s.Kind.String()))
+	}
+	for i, s := range descServers {
+		fields = append(fields, zap.String(fmt.Sprintf("new_address_%d", i), s.Addr.String()))
+		fields = append(fields, zap.String(fmt.Sprintf("new_kind_%d", i), s.Kind.String()))
+	}
+
+	return
+}
+
+func sortServers(s []description.Server) []description.Server {
+	r := make([]description.Server, len(s))
+	copy(r, s)
+	sort.Slice(r, func(i, j int) bool {
+		return r[i].Addr < r[j].Addr
+	})
+	return r
 }
 
 func topologyDescriptionEqual(d1, d2 *description.Topology) bool {
