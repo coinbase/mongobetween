@@ -17,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/address"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/description"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
@@ -149,9 +150,23 @@ func (m *Mongo) Close() {
 	}
 }
 
-func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
+func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	var addr address.Address
+	defer func() {
+		if err != nil {
+			cursorID, _ := msg.Op.CursorID()
+			m.log.Error(
+				"Round trip error",
+				zap.Error(err),
+				zap.Int64("cursor_id", cursorID),
+				zap.Int32("op_code", int32(msg.Op.OpCode())),
+				zap.String("address", addr.String()),
+			)
+		}
+	}()
 
 	if m.client == nil {
 		return nil, errors.New("connection closed")
@@ -171,14 +186,16 @@ func (m *Mongo) RoundTrip(msg *Message) (*Message, error) {
 		return nil, err
 	}
 
+	addr = conn.Address()
+
 	defer func() {
 		err := conn.Close()
 		if err != nil {
-			m.log.Error("Error closing Mongo connection", zap.Error(err))
+			m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
 		}
 	}()
 
-	// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L369-L371
+	// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.5/x/mongo/driver/operation.go#L369-L371
 	ep, ok := server.(driver.ErrorProcessor)
 	if !ok {
 		return nil, errors.New("server ErrorProcessor type assertion failed")
@@ -240,12 +257,12 @@ func (m *Mongo) selectServer(requestCursorID int64) (server driver.Server, err e
 
 func (m *Mongo) checkoutConnection(server driver.Server) (conn driver.Connection, err error) {
 	defer func(start time.Time) {
-		address := ""
+		addr := ""
 		if conn != nil {
-			address = conn.Address().String()
+			addr = conn.Address().String()
 		}
 		_ = m.statsd.Timing("checkout_connection", time.Since(start), []string{
-			fmt.Sprintf("address:%s", address),
+			fmt.Sprintf("address:%s", addr),
 			fmt.Sprintf("success:%v", err == nil),
 		}, 1)
 	}(time.Now())

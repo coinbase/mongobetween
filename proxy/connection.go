@@ -92,13 +92,6 @@ func (c *connection) handleMessage() (err error) {
 
 	var res *mongo.Message
 	if res, err = c.roundTrip(req, isMaster); err != nil {
-		cursorID, _ := op.CursorID()
-		c.log.Error(
-			"Round trip error",
-			zap.Error(err),
-			zap.Int64("cursor_id", cursorID),
-			zap.Int32("op_code", int32(reqOpCode)),
-		)
 		return
 	}
 	if req.Op.Unacknowledged() {
