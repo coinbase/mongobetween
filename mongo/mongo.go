@@ -28,6 +28,7 @@ import (
 
 const pingTimeout = 60 * time.Second
 const disconnectTimeout = 10 * time.Second
+const errorInterruptedAtShutdown int32 = 11600
 
 type Mongo struct {
 	log    *zap.Logger
@@ -204,7 +205,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 
 	wm, err := m.roundTrip(conn, msg.Wm, msg.Op.Unacknowledged())
 	if err != nil {
-		m.processError(err, ep, addr)
+		m.processError(err, ep, addr, conn.Description().Kind)
 		return nil, err
 	}
 	if msg.Op.Unacknowledged() {
@@ -220,7 +221,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 	opErr := op.Error()
 	if opErr != nil {
 		// process the error, but don't return it as we still want to forward the response to the client
-		m.processError(opErr, ep, addr)
+		m.processError(opErr, ep, addr, conn.Description().Kind)
 	}
 
 	if responseCursorID, ok := op.CursorID(); ok {
@@ -315,25 +316,39 @@ func wrapNetworkError(err error) error {
 }
 
 // Process the error with the given ErrorProcessor, returning true if processing causes the topology to change
-func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.Address) {
+func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.Address, kind description.ServerKind) {
 	last := m.Description()
 
+	// gather fields for logging
+	fields := []zap.Field{
+		zap.String("address", addr.String()),
+		zap.Error(err),
+	}
+	if derr, ok := err.(driver.Error); ok {
+		fields = append(fields, zap.Int32("error_code", derr.Code))
+		fields = append(fields, zap.Strings("error_labels", derr.Labels))
+		fields = append(fields, zap.NamedError("error_wrapped", derr.Wrapped))
+
+		// sometimes mongos will proxy interruptedAtShutdown errors from other nodes, causing that mongos to
+		// be marked as unknown; to get around this, we skip passing it to the ErrorProcessor, effectively
+		// ignoring the error and preventing the invalid topology change
+		if derr.Code == errorInterruptedAtShutdown && kind == description.Mongos {
+			m.log.Warn("Ignoring topology changing error", fields...)
+			return
+		}
+	}
+	if werr, ok := err.(driver.WriteConcernError); ok {
+		fields = append(fields, zap.Int64("error_code", werr.Code))
+	}
+
+	// process the error
 	ep.ProcessError(err)
 
+	// log if the error changed the topology
 	if errorChangesTopology(err) {
 		desc := m.Description()
 
-		fields := topologyChangedFields(&last, &desc)
-		fields = append(fields, zap.String("address", addr.String()))
-		fields = append(fields, zap.Error(err))
-		if derr, ok := err.(driver.Error); ok {
-			fields = append(fields, zap.Int32("error_code", derr.Code))
-			fields = append(fields, zap.Strings("error_labels", derr.Labels))
-			fields = append(fields, zap.NamedError("error_wrapped", derr.Wrapped))
-		}
-		if werr, ok := err.(driver.WriteConcernError); ok {
-			fields = append(fields, zap.Int64("error_code", werr.Code))
-		}
+		fields = append(fields, topologyChangedFields(&last, &desc)...)
 		m.log.Error("Topology changing error", fields...)
 	}
 }
