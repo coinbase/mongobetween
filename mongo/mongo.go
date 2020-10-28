@@ -28,7 +28,6 @@ import (
 
 const pingTimeout = 60 * time.Second
 const disconnectTimeout = 10 * time.Second
-const errorInterruptedAtShutdown int32 = 11600
 
 type Mongo struct {
 	log    *zap.Logger
@@ -328,14 +327,6 @@ func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.A
 		fields = append(fields, zap.Int32("error_code", derr.Code))
 		fields = append(fields, zap.Strings("error_labels", derr.Labels))
 		fields = append(fields, zap.NamedError("error_wrapped", derr.Wrapped))
-
-		// sometimes mongos will proxy interruptedAtShutdown errors from other nodes, causing that mongos to
-		// be marked as unknown; to get around this, we skip passing it to the ErrorProcessor, effectively
-		// ignoring the error and preventing the invalid topology change
-		if derr.Code == errorInterruptedAtShutdown && kind == description.Mongos {
-			m.log.Warn("Ignoring topology changing error", fields...)
-			return
-		}
 	}
 	if werr, ok := err.(driver.WriteConcernError); ok {
 		fields = append(fields, zap.Int64("error_code", werr.Code))
