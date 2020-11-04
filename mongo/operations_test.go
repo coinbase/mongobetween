@@ -1,11 +1,12 @@
 package mongo
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
-	"testing"
 )
 
 func TestOpQuery(t *testing.T) {
@@ -142,6 +143,34 @@ func TestOpMsgError(t *testing.T) {
 	op := opMsg{sections: []opMsgSection{&opMsgSectionSingle{doc1}}}
 	err = op.Error()
 	assert.Error(t, err)
+}
+
+func TestOpMsgChecksum(t *testing.T) {
+	cmd, err := bson.Marshal(bson.D{
+		{Key: "ping", Value: 1},
+	})
+	assert.Nil(t, err)
+
+	// Create a raw wire message for a "ping" command with a checksum set.
+	var checksum uint32 = 10
+	wm := wiremessage.AppendHeader(nil, 0, 0, 0, wiremessage.OpMsg)
+	wm = wiremessage.AppendMsgFlags(wm, wiremessage.ChecksumPresent)
+	wm = wiremessage.AppendMsgSectionType(wm, wiremessage.SingleDocument)
+	wm = bsoncore.AppendDocument(wm, cmd)
+	wm = appendi32(wm, int32(checksum))
+	wm = bsoncore.UpdateLength(wm, 0, int32(len(wm)))
+
+	// Decode the message and verify that the flags and checksum were correctly parsed.
+	op, err := Decode(wm)
+	assert.Nil(t, err)
+
+	msg := op.(*opMsg)
+	assert.True(t, msg.flags&wiremessage.ChecksumPresent == wiremessage.ChecksumPresent)
+	assert.Equal(t, checksum, msg.checksum)
+
+	// Encode again and verify that the checksum was encoded.
+	encoded := op.Encode(0)
+	assert.Equal(t, wm, encoded)
 }
 
 func TestOpReply(t *testing.T) {
