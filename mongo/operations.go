@@ -206,6 +206,7 @@ type opMsg struct {
 	reqID    int32
 	flags    wiremessage.MsgFlag
 	sections []opMsgSection
+	checksum uint32
 }
 
 type opMsgSection interface {
@@ -282,7 +283,17 @@ func decodeMsg(reqID int32, wm []byte) (*opMsg, error) {
 		return nil, errors.New("malformed wire message: missing OP_MSG flags")
 	}
 
+	checksumPresent := m.flags&wiremessage.ChecksumPresent == wiremessage.ChecksumPresent
 	for len(wm) > 0 {
+		// If the checksumPresent flag is set, the last four bytes of the message contain the checksum.
+		if checksumPresent && len(wm) == 4 {
+			m.checksum, wm, ok = wiremessage.ReadMsgChecksum(wm)
+			if !ok {
+				return nil, errors.New("malformed wire message: insufficient bytes to read checksum")
+			}
+			continue
+		}
+
 		var stype wiremessage.SectionType
 		stype, wm, ok = wiremessage.ReadMsgSectionType(wm)
 		if !ok {
@@ -323,6 +334,11 @@ func (m *opMsg) Encode(responseTo int32) []byte {
 	buffer = wiremessage.AppendMsgFlags(buffer, m.flags)
 	for _, section := range m.sections {
 		buffer = section.append(buffer)
+	}
+	if m.flags&wiremessage.ChecksumPresent == wiremessage.ChecksumPresent {
+		// The checksum is a uint32, but we can use appendi32 to encode it. Overflow/underflow when casting to int32 is
+		// not a concern here because the bytes in the number do not change after casting.
+		buffer = appendi32(buffer, int32(m.checksum))
 	}
 	buffer = bsoncore.UpdateLength(buffer, idx, int32(len(buffer[idx:])))
 	return buffer
