@@ -285,6 +285,7 @@ func decodeMsg(reqID int32, wm []byte) (*opMsg, error) {
 
 	checksumPresent := m.flags&wiremessage.ChecksumPresent == wiremessage.ChecksumPresent
 	for len(wm) > 0 {
+		// If the checksumPresent flag is set, the last four bytes of the message contain the checksum.
 		if checksumPresent && len(wm) == 4 {
 			m.checksum, wm, ok = wiremessage.ReadMsgChecksum(wm)
 			if !ok {
