@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -19,6 +20,9 @@ import (
 
 const usernamePlaceholder = "_"
 const defaultStatsdAddress = "localhost:8125"
+const defaultMinPoolSize = 0
+const defaultMaxPoolSize = 0
+const defaultTimeout = 0
 
 var validNetworks = []string{"tcp", "tcp4", "tcp6", "unix", "unixpacket"}
 
@@ -88,6 +92,8 @@ func parseFlags() (*Config, error) {
 
 	var unlink, ping, pretty bool
 	var network, username, password, stats, loglevel string
+	var minPoolSize, maxPoolSize uint64
+	var connectionTimeout, serverSelectionTimeout, socketTimeout int64
 	flag.StringVar(&network, "network", "tcp4", "One of: tcp, tcp4, tcp6, unix or unixpacket")
 	flag.StringVar(&username, "username", "", "MongoDB username")
 	flag.StringVar(&password, "password", "", "MongoDB password")
@@ -96,7 +102,11 @@ func parseFlags() (*Config, error) {
 	flag.BoolVar(&ping, "ping", false, "Ping downstream MongoDB before listening")
 	flag.BoolVar(&pretty, "pretty", false, "Pretty print logging")
 	flag.StringVar(&loglevel, "loglevel", "info", "One of: debug, info, warn, error, dpanic, panic, fatal")
-
+	flag.Uint64Var(&minPoolSize, "minPoolSize", defaultMinPoolSize, "Minimum number of connections with downstream MongoDB")
+	flag.Uint64Var(&maxPoolSize, "maxPoolSize", defaultMaxPoolSize, "Maximum number of connections with downstream MongoDB")
+	flag.Int64Var(&connectionTimeout, "connectionTimeout", defaultTimeout, "Connection timeout in seconds for downstream MongoDB")
+	flag.Int64Var(&serverSelectionTimeout, "serverSelectionTimeout", defaultTimeout, "Server Selection timeout in seconds for downstream MongoDB")
+	flag.Int64Var(&socketTimeout, "socketTimeout", defaultTimeout, "Socket timeout in seconds for downstream MongoDB")
 	flag.Parse()
 
 	network = expandEnv(network)
@@ -145,6 +155,10 @@ func parseFlags() (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		setConnectionPoolSize(minPoolSize, maxPoolSize, opts)
+		setConnectionOptions(connectionTimeout, serverSelectionTimeout, socketTimeout, opts)
+
 		clients = append(clients, client{
 			address: address,
 			label:   label,
@@ -168,6 +182,32 @@ func expandEnv(config string) string {
 	return regexp.MustCompile(`\${(\w+)}`).ReplaceAllStringFunc(config, func(s string) string {
 		return os.ExpandEnv(s)
 	})
+}
+
+func setConnectionPoolSize(min, max uint64, opts *options.ClientOptions) {
+	// set connection pool values if provided with appropriate flags
+	if min != 0 {
+		opts.MinPoolSize = &min
+	}
+	if max != 0 {
+		opts.MaxPoolSize = &max
+	}
+}
+
+func setConnectionOptions(ct, sst, st int64, opts *options.ClientOptions) {
+	// set connection values if provided with appropriate flags
+	if ct != 0 {
+		timeOut := time.Second * time.Duration(ct)
+		opts.ConnectTimeout = &timeOut
+	}
+	if sst != 0 {
+		timeOut := time.Second * time.Duration(sst)
+		opts.ServerSelectionTimeout = &timeOut
+	}
+	if st != 0 {
+		timeOut := time.Second * time.Duration(st)
+		opts.SocketTimeout = &timeOut
+	}
 }
 
 func clientOptions(uri, username, password string) (string, *options.ClientOptions, error) {
