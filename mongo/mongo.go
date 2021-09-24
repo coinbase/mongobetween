@@ -175,7 +175,9 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 
 	// FIXME this assumes that cursorIDs are unique on the cluster, but two servers can have the same cursorID reference different cursors
 	requestCursorID, _ := msg.Op.CursorID()
-	server, err := m.selectServer(requestCursorID)
+	rpref, _ := msg.Op.ReadPref()
+
+	server, err := m.selectServer(requestCursorID, rpref)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +239,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 	}, nil
 }
 
-func (m *Mongo) selectServer(requestCursorID int64) (server driver.Server, err error) {
+func (m *Mongo) selectServer(requestCursorID int64, rpref *readpref.ReadPref) (server driver.Server, err error) {
 	defer func(start time.Time) {
 		_ = m.statsd.Timing("server_selection", time.Since(start), []string{fmt.Sprintf("success:%v", err == nil)}, 1)
 	}(time.Now())
@@ -250,7 +252,7 @@ func (m *Mongo) selectServer(requestCursorID int64) (server driver.Server, err e
 	}
 
 	selector := description.CompositeSelector([]description.ServerSelector{
-		description.ReadPrefSelector(readpref.Primary()),   // ignored by sharded clusters
+		description.ReadPrefSelector(rpref),                // ignored by sharded clusters
 		description.LatencySelector(15 * time.Millisecond), // default localThreshold for the client
 	})
 	return m.topology.SelectServer(m.roundTripCtx, selector)
