@@ -206,7 +206,7 @@ func (q *opQuery) Unacknowledged() bool {
 	return false
 }
 
-func (o *opQuery) ReadPref() (rp *readpref.ReadPref, ok bool) {
+func (q *opQuery) ReadPref() (rp *readpref.ReadPref, ok bool) {
 	return readpref.Primary(), false
 }
 
@@ -586,7 +586,7 @@ func (g *opGetMore) Unacknowledged() bool {
 	return false
 }
 
-func (o *opGetMore) ReadPref() (rp *readpref.ReadPref, ok bool) {
+func (g *opGetMore) ReadPref() (rp *readpref.ReadPref, ok bool) {
 	return readpref.Primary(), false
 }
 
