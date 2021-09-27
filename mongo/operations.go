@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/x/mongo/driver"
-
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
+	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
 )
 
@@ -24,6 +24,7 @@ type Operation interface {
 	RequestID() int32
 	Error() error
 	Unacknowledged() bool
+	ReadPref() (rpref *readpref.ReadPref, ok bool)
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1165-L1230
@@ -100,6 +101,10 @@ func (o *opUnknown) Error() error {
 
 func (o *opUnknown) Unacknowledged() bool {
 	return false
+}
+
+func (o *opUnknown) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#wire-op-query
@@ -201,6 +206,10 @@ func (q *opQuery) Unacknowledged() bool {
 	return false
 }
 
+func (q *opQuery) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-msg
 type opMsg struct {
 	reqID    int32
@@ -213,6 +222,7 @@ type opMsgSection interface {
 	cursorID() (cursorID int64, ok bool)
 	isIsMaster() bool
 	append(buffer []byte) []byte
+	ReadPref() (rpref *readpref.ReadPref, ok bool)
 }
 
 type opMsgSectionSingle struct {
@@ -224,6 +234,21 @@ func (o *opMsgSectionSingle) cursorID() (cursorID int64, ok bool) {
 		return getMore, ok
 	}
 	return o.msg.Lookup("cursor", "id").Int64OK()
+}
+
+func (o *opMsgSectionSingle) ReadPref() (rpref *readpref.ReadPref, ok bool) {
+	if prefDoc, ok := o.msg.Lookup("$readPreference").DocumentOK(); ok {
+		if prefStr, ok := prefDoc.Lookup("mode").StringValueOK(); ok {
+			// Note: only the mode is unpacked currently
+			mode, err := readpref.ModeFromString(prefStr)
+			if err == nil {
+				rpref, _ := readpref.New(mode)
+				return rpref, true
+			}
+		}
+	}
+
+	return readpref.Primary(), false
 }
 
 func (o *opMsgSectionSingle) isIsMaster() bool {
@@ -269,6 +294,10 @@ func (o *opMsgSectionSequence) append(buffer []byte) []byte {
 	}
 
 	return buffer
+}
+
+func (o *opMsgSectionSequence) ReadPref() (rpref *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1191-L1220
@@ -381,6 +410,15 @@ func (m *opMsg) Unacknowledged() bool {
 	return m.flags&wiremessage.MoreToCome == wiremessage.MoreToCome
 }
 
+func (m *opMsg) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	for _, section := range m.sections {
+		if rpref, ok := section.ReadPref(); ok {
+			return rpref, ok
+		}
+	}
+	return readpref.Primary(), false
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-reply
 type opReply struct {
 	reqID        int32
@@ -468,6 +506,10 @@ func (r *opReply) Unacknowledged() bool {
 	return false
 }
 
+func (r *opReply) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-get-more
 type opGetMore struct {
 	reqID              int32
@@ -542,6 +584,10 @@ func (g *opGetMore) Error() error {
 
 func (g *opGetMore) Unacknowledged() bool {
 	return false
+}
+
+func (g *opGetMore) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
 }
 
 func appendi32(dst []byte, i32 int32) []byte {
