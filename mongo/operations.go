@@ -3,6 +3,7 @@ package mongo
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
@@ -17,6 +18,7 @@ type Message struct {
 }
 
 type Operation interface {
+	fmt.Stringer
 	OpCode() wiremessage.OpCode
 	Encode(responseTo int32) []byte
 	IsIsMaster() bool
@@ -34,38 +36,28 @@ func Decode(wm []byte) (Operation, error) {
 		return nil, errors.New("malformed wire message: insufficient bytes")
 	}
 
+	var op Operation
+	var err error
 	switch opCode {
 	case wiremessage.OpQuery:
-		query, err := decodeQuery(reqID, wmBody)
-		if err != nil {
-			return nil, err
-		}
-		return query, nil
+		op, err = decodeQuery(reqID, wmBody)
 	case wiremessage.OpMsg:
-		msg, err := decodeMsg(reqID, wmBody)
-		if err != nil {
-			return nil, err
-		}
-		return msg, nil
+		op, err = decodeMsg(reqID, wmBody)
 	case wiremessage.OpReply:
-		msg, err := decodeReply(reqID, wmBody)
-		if err != nil {
-			return nil, err
-		}
-		return msg, nil
+		op, err = decodeReply(reqID, wmBody)
 	case wiremessage.OpGetMore:
-		msg, err := decodeGetMore(reqID, wmBody)
-		if err != nil {
-			return nil, err
-		}
-		return msg, nil
+		op, err = decodeGetMore(reqID, wmBody)
 	default:
-		return &opUnknown{
+		op = &opUnknown{
 			opCode: opCode,
 			reqID:  reqID,
 			wm:     wm,
-		}, nil
+		}
 	}
+	if err != nil {
+		return nil, err
+	}
+	return op, nil
 }
 
 type opUnknown struct {
@@ -100,6 +92,10 @@ func (o *opUnknown) Error() error {
 
 func (o *opUnknown) Unacknowledged() bool {
 	return false
+}
+
+func (o *opUnknown) String() string {
+	return fmt.Sprintf("{ OpUnknown opCode: %d, wm: %s }", o.opCode, o.wm)
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#wire-op-query
@@ -201,6 +197,10 @@ func (q *opQuery) Unacknowledged() bool {
 	return false
 }
 
+func (q *opQuery) String() string {
+	return fmt.Sprintf("{ OpQuery flags: %s, collName: %s, numberToSkip: %d, numberToReturn: %d, query: %s, returnFieldsSelector: %s }", q.flags.String(), q.collName, q.numberToSkip, q.numberToReturn, q.query.String(), q.returnFieldsSelector.String())
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-msg
 type opMsg struct {
 	reqID    int32
@@ -213,6 +213,7 @@ type opMsgSection interface {
 	cursorID() (cursorID int64, ok bool)
 	isIsMaster() bool
 	append(buffer []byte) []byte
+	String() string
 }
 
 type opMsgSectionSingle struct {
@@ -238,6 +239,10 @@ func (o *opMsgSectionSingle) isIsMaster() bool {
 func (o *opMsgSectionSingle) append(buffer []byte) []byte {
 	buffer = wiremessage.AppendMsgSectionType(buffer, wiremessage.SingleDocument)
 	return append(buffer, o.msg...)
+}
+
+func (o *opMsgSectionSingle) String() string {
+	return fmt.Sprintf("{ SectionSingle msg: %s }", o.msg.String())
 }
 
 type opMsgSectionSequence struct {
@@ -269,6 +274,14 @@ func (o *opMsgSectionSequence) append(buffer []byte) []byte {
 	}
 
 	return buffer
+}
+
+func (o *opMsgSectionSequence) String() string {
+	var msgs []string
+	for _, msg := range o.msgs {
+		msgs = append(msgs, msg.String())
+	}
+	return fmt.Sprintf("{ SectionSingle identifier: %s, msgs: [%s] }", o.identifier, strings.Join(msgs, ", "))
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1191-L1220
@@ -381,6 +394,14 @@ func (m *opMsg) Unacknowledged() bool {
 	return m.flags&wiremessage.MoreToCome == wiremessage.MoreToCome
 }
 
+func (m *opMsg) String() string {
+	var sections []string
+	for _, section := range m.sections {
+		sections = append(sections, section.String())
+	}
+	return fmt.Sprintf("{ OpMsg flags: %d, sections: [%s], checksum: %d }", m.flags, strings.Join(sections, ", "), m.checksum)
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-reply
 type opReply struct {
 	reqID        int32
@@ -468,6 +489,14 @@ func (r *opReply) Unacknowledged() bool {
 	return false
 }
 
+func (r *opReply) String() string {
+	var documents []string
+	for _, document := range r.documents {
+		documents = append(documents, document.String())
+	}
+	return fmt.Sprintf("{ OpReply flags: %d, cursorID: %d, startingFrom: %d, numReturned: %d, documents: [%s] }", r.flags, r.cursorID, r.startingFrom, r.numReturned, strings.Join(documents, ", "))
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-get-more
 type opGetMore struct {
 	reqID              int32
@@ -542,6 +571,10 @@ func (g *opGetMore) Error() error {
 
 func (g *opGetMore) Unacknowledged() bool {
 	return false
+}
+
+func (g *opGetMore) String() string {
+	return fmt.Sprintf("{ OpGetMore fullCollectionName: %s, numberToReturn: %d, cursorID: %d }", g.fullCollectionName, g.numberToReturn, g.cursorID)
 }
 
 func appendi32(dst []byte, i32 int32) []byte {
