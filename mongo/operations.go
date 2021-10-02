@@ -26,6 +26,7 @@ type Operation interface {
 	RequestID() int32
 	Error() error
 	Unacknowledged() bool
+	ReadPreference() bsoncore.Document
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L1165-L1230
@@ -92,6 +93,10 @@ func (o *opUnknown) Error() error {
 
 func (o *opUnknown) Unacknowledged() bool {
 	return false
+}
+
+func (o *opUnknown) ReadPreference() bsoncore.Document {
+	return nil
 }
 
 func (o *opUnknown) String() string {
@@ -197,6 +202,13 @@ func (q *opQuery) Unacknowledged() bool {
 	return false
 }
 
+func (q *opQuery) ReadPreference() bsoncore.Document {
+	if val, ok := q.query.Lookup("$readPreference").DocumentOK(); ok {
+		return val
+	}
+	return nil
+}
+
 func (q *opQuery) String() string {
 	return fmt.Sprintf("{ OpQuery flags: %s, collName: %s, numberToSkip: %d, numberToReturn: %d, query: %s, returnFieldsSelector: %s }", q.flags.String(), q.collName, q.numberToSkip, q.numberToReturn, q.query.String(), q.returnFieldsSelector.String())
 }
@@ -213,6 +225,7 @@ type opMsgSection interface {
 	cursorID() (cursorID int64, ok bool)
 	isIsMaster() bool
 	append(buffer []byte) []byte
+	readPreference() bsoncore.Document
 	String() string
 }
 
@@ -239,6 +252,13 @@ func (o *opMsgSectionSingle) isIsMaster() bool {
 func (o *opMsgSectionSingle) append(buffer []byte) []byte {
 	buffer = wiremessage.AppendMsgSectionType(buffer, wiremessage.SingleDocument)
 	return append(buffer, o.msg...)
+}
+
+func (o *opMsgSectionSingle) readPreference() bsoncore.Document {
+	if val, ok := o.msg.Lookup("$readPreference").DocumentOK(); ok {
+		return val
+	}
+	return nil
 }
 
 func (o *opMsgSectionSingle) String() string {
@@ -274,6 +294,15 @@ func (o *opMsgSectionSequence) append(buffer []byte) []byte {
 	}
 
 	return buffer
+}
+
+func (o *opMsgSectionSequence) readPreference() bsoncore.Document {
+	for _, msg := range o.msgs {
+		if val, ok := msg.Lookup("$readPreference").DocumentOK(); ok {
+			return val
+		}
+	}
+	return nil
 }
 
 func (o *opMsgSectionSequence) String() string {
@@ -394,6 +423,16 @@ func (m *opMsg) Unacknowledged() bool {
 	return m.flags&wiremessage.MoreToCome == wiremessage.MoreToCome
 }
 
+func (m *opMsg) ReadPreference() bsoncore.Document {
+	for _, section := range m.sections {
+		pref := section.readPreference()
+		if pref != nil {
+			return pref
+		}
+	}
+	return nil
+}
+
 func (m *opMsg) String() string {
 	var sections []string
 	for _, section := range m.sections {
@@ -489,6 +528,10 @@ func (r *opReply) Unacknowledged() bool {
 	return false
 }
 
+func (r *opReply) ReadPreference() bsoncore.Document {
+	return nil
+}
+
 func (r *opReply) String() string {
 	var documents []string
 	for _, document := range r.documents {
@@ -571,6 +614,10 @@ func (g *opGetMore) Error() error {
 
 func (g *opGetMore) Unacknowledged() bool {
 	return false
+}
+
+func (g *opGetMore) ReadPreference() bsoncore.Document {
+	return nil
 }
 
 func (g *opGetMore) String() string {
