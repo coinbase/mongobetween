@@ -70,6 +70,7 @@ func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, pi
 		if err != nil {
 			return nil, err
 		}
+		log.Info("Pong")
 	}
 
 	t := extractTopology(c)
