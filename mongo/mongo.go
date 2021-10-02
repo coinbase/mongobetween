@@ -15,11 +15,11 @@ import (
 	"github.com/DataDog/datadog-go/statsd"
 	"go.mongodb.org/mongo-driver/event"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/address"
+	"go.mongodb.org/mongo-driver/mongo/description"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
-	"go.mongodb.org/mongo-driver/x/mongo/driver/address"
-	"go.mongodb.org/mongo-driver/x/mongo/driver/description"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
 
@@ -204,7 +204,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 
 	wm, err := m.roundTrip(conn, msg.Wm, msg.Op.Unacknowledged())
 	if err != nil {
-		m.processError(err, ep, addr, conn.Description().Kind)
+		m.processError(err, ep, addr, conn)
 		return nil, err
 	}
 	if msg.Op.Unacknowledged() {
@@ -220,7 +220,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 	opErr := op.Error()
 	if opErr != nil {
 		// process the error, but don't return it as we still want to forward the response to the client
-		m.processError(opErr, ep, addr, conn.Description().Kind)
+		m.processError(opErr, ep, addr, conn)
 	}
 
 	if responseCursorID, ok := op.CursorID(); ok {
@@ -315,7 +315,7 @@ func wrapNetworkError(err error) error {
 }
 
 // Process the error with the given ErrorProcessor, returning true if processing causes the topology to change
-func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.Address, kind description.ServerKind) {
+func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.Address, conn driver.Connection) {
 	last := m.Description()
 
 	// gather fields for logging
@@ -333,7 +333,7 @@ func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.A
 	}
 
 	// process the error
-	ep.ProcessError(err)
+	ep.ProcessError(err, conn)
 
 	// log if the error changed the topology
 	if errorChangesTopology(err) {
