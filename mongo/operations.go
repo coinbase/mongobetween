@@ -32,38 +32,28 @@ func Decode(wm []byte) (Operation, error) {
 		return nil, errors.New("malformed wire message: insufficient bytes")
 	}
 
+	var op Operation
+	var err error
 	switch opCode {
 	case wiremessage.OpQuery:
-		query, err := decodeQuery(reqID, wmBody)
-		if err != nil {
-			return nil, err
-		}
-		return query, nil
+		op, err = decodeQuery(reqID, wmBody)
 	case wiremessage.OpMsg:
-		msg, err := decodeMsg(reqID, wmBody)
-		if err != nil {
-			return nil, err
-		}
-		return msg, nil
+		op, err = decodeMsg(reqID, wmBody)
 	case wiremessage.OpReply:
-		msg, err := decodeReply(reqID, wmBody)
-		if err != nil {
-			return nil, err
-		}
-		return msg, nil
+		op, err = decodeReply(reqID, wmBody)
 	case wiremessage.OpGetMore:
-		msg, err := decodeGetMore(reqID, wmBody)
-		if err != nil {
-			return nil, err
-		}
-		return msg, nil
+		op, err = decodeGetMore(reqID, wmBody)
 	default:
-		return &opUnknown{
+		op = &opUnknown{
 			opCode: opCode,
 			reqID:  reqID,
 			wm:     wm,
-		}, nil
+		}
 	}
+	if err != nil {
+		return nil, err
+	}
+	return op, nil
 }
 
 type opUnknown struct {
