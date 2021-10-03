@@ -152,7 +152,7 @@ func (m *Mongo) Close() {
 	}
 }
 
-func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
+func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -192,6 +192,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 	}
 
 	addr = conn.Address()
+	tags = append(tags, fmt.Sprintf("address:%s", conn.Address().String()))
 
 	defer func() {
 		err := conn.Close()
@@ -206,7 +207,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 		return nil, errors.New("server ErrorProcessor type assertion failed")
 	}
 
-	wm, err := m.roundTrip(conn, msg.Wm, msg.Op.Unacknowledged())
+	wm, err := m.roundTrip(conn, msg.Wm, msg.Op.Unacknowledged(), tags)
 	if err != nil {
 		m.processError(err, ep, addr, conn)
 		return nil, err
@@ -281,12 +282,9 @@ func (m *Mongo) checkoutConnection(server driver.Server) (conn driver.Connection
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L664-L681
-func (m *Mongo) roundTrip(conn driver.Connection, req []byte, unacknowledged bool) (res []byte, err error) {
+func (m *Mongo) roundTrip(conn driver.Connection, req []byte, unacknowledged bool, tags []string) (res []byte, err error) {
 	defer func(start time.Time) {
-		tags := []string{
-			fmt.Sprintf("address:%s", conn.Address().String()),
-			fmt.Sprintf("unacknowledged:%v", unacknowledged),
-		}
+		tags = append(tags, fmt.Sprintf("success:%v", err == nil))
 
 		_ = m.statsd.Distribution("request_size", float64(len(req)), tags, 1)
 		if err == nil && !unacknowledged {
@@ -294,8 +292,7 @@ func (m *Mongo) roundTrip(conn driver.Connection, req []byte, unacknowledged boo
 			_ = m.statsd.Distribution("response_size", float64(len(res)), tags, 1)
 		}
 
-		roundTripTags := append(tags, fmt.Sprintf("success:%v", err == nil))
-		_ = m.statsd.Timing("round_trip", time.Since(start), roundTripTags, 1)
+		_ = m.statsd.Timing("round_trip", time.Since(start), tags, 1)
 	}(time.Now())
 
 	if err = conn.WriteWireMessage(m.roundTripCtx, req); err != nil {

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
-	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
 	"go.uber.org/zap"
 
 	"github.com/coinbase/mongobetween/mongo"
@@ -59,28 +58,11 @@ func (c *connection) processMessages() {
 }
 
 func (c *connection) handleMessage() (err error) {
-	isMaster := false
-	var req, res *mongo.Message
+	var tags []string
 
 	defer func(start time.Time) {
-		var reqOpCode, resOpCode wiremessage.OpCode
-		collection := ""
-		command := mongo.Unknown
-		if req != nil {
-			command, collection = req.Op.CommandAndCollection()
-			reqOpCode = req.Op.OpCode()
-		}
-		if res != nil {
-			resOpCode = res.Op.OpCode()
-		}
-		_ = c.statsd.Timing("handle_message", time.Since(start), []string{
-			fmt.Sprintf("success:%v", err == nil),
-			fmt.Sprintf("is_master:%v", isMaster),
-			fmt.Sprintf("request_op_code:%v", reqOpCode),
-			fmt.Sprintf("response_op_code:%v", resOpCode),
-			fmt.Sprintf("command:%s", string(command)),
-			fmt.Sprintf("collection:%s", collection),
-		}, 1)
+		tags := append(tags, fmt.Sprintf("success:%v", err == nil))
+		_ = c.statsd.Timing("handle_message", time.Since(start), tags, 1)
 	}(time.Now())
 
 	var wm []byte
@@ -93,22 +75,40 @@ func (c *connection) handleMessage() (err error) {
 		return
 	}
 
-	if ce := c.log.Check(zap.DebugLevel, "Request"); ce != nil {
-		command, collection := op.CommandAndCollection()
-		ce.Write(zap.Int32("op_code", int32(op.OpCode())), zap.Int("request_size", len(wm)), zap.String("command", string(command)), zap.String("collection", collection))
-	}
+	isMaster := op.IsIsMaster()
+	command, collection := op.CommandAndCollection()
+	unacknowledged := op.Unacknowledged()
+	tags = append(
+		tags,
+		fmt.Sprintf("request_op_code:%v", op.OpCode()),
+		fmt.Sprintf("is_master:%v", isMaster),
+		fmt.Sprintf("command:%s", string(command)),
+		fmt.Sprintf("collection:%s", collection),
+		fmt.Sprintf("unacknowledged:%v", unacknowledged),
+	)
+	c.log.Debug(
+		"Request",
+		zap.Int32("op_code", int32(op.OpCode())),
+		zap.Bool("is_master", isMaster),
+		zap.String("command", string(command)),
+		zap.String("collection", collection),
+		zap.Int("request_size", len(wm)),
+	)
 
-	isMaster = op.IsIsMaster()
-	req = &mongo.Message{
+	req := &mongo.Message{
 		Wm: wm,
 		Op: op,
 	}
-
-	if res, err = c.roundTrip(req, isMaster); err != nil {
+	var res *mongo.Message
+	if res, err = c.roundTrip(req, isMaster, tags); err != nil {
 		return
 	}
-	if req.Op.Unacknowledged() {
-		c.log.Debug("Unacknowledged request", zap.Int32("op_code", int32(res.Op.OpCode())))
+
+	if unacknowledged {
+		c.log.Debug(
+			"Unacknowledged request",
+			zap.Int32("op_code", int32(res.Op.OpCode())),
+		)
 		return
 	}
 
@@ -116,7 +116,11 @@ func (c *connection) handleMessage() (err error) {
 		return
 	}
 
-	c.log.Debug("Response", zap.Int32("op_code", int32(res.Op.OpCode())), zap.Int("response_size", len(res.Wm)))
+	c.log.Debug(
+		"Response",
+		zap.Int32("op_code", int32(res.Op.OpCode())),
+		zap.Int("response_size", len(res.Wm)),
+	)
 	return
 }
 
@@ -145,13 +149,11 @@ func (c *connection) readWireMessage() ([]byte, error) {
 	return buffer, nil
 }
 
-func (c *connection) roundTrip(msg *mongo.Message, isMaster bool) (*mongo.Message, error) {
+func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string) (*mongo.Message, error) {
 	if isMaster {
 		requestID := msg.Op.RequestID()
 		c.log.Debug("Non-proxied ismaster response", zap.Int32("request_id", requestID))
 		return mongo.IsMasterResponse(requestID, c.client.Description().Kind)
 	}
-
-	c.log.Debug("Proxying request to upstream server", zap.Int("request_size", len(msg.Wm)))
-	return c.client.RoundTrip(msg)
+	return c.client.RoundTrip(msg, tags)
 }

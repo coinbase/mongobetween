@@ -2,7 +2,6 @@ package mongo
 
 import (
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
-	"strings"
 )
 
 type Command string
@@ -25,6 +24,7 @@ const (
 	GetMore                   = "getMore"
 	Insert                    = "insert"
 	IsMaster                  = "isMaster"
+	Ismaster                  = "ismaster"
 	ListCollections           = "listCollections"
 	ListIndexes               = "listIndexes"
 	ListDatabases             = "listDatabases"
@@ -33,7 +33,7 @@ const (
 )
 
 var collectionStrings = []Command{Aggregate, Count, CreateIndexes, Delete, Distinct, Drop, DropIndexes, Find, FindAndModify, Insert, ListIndexes, MapReduce, Update}
-var int32Commands = []Command{AbortTransaction, Aggregate, CommitTransaction, DropDatabase, IsMaster, ListCollections, ListDatabases}
+var int32Commands = []Command{AbortTransaction, Aggregate, CommitTransaction, DropDatabase, IsMaster, Ismaster, ListCollections, ListDatabases}
 var int64Commands = []Command{GetMore}
 var arrayCommands = []Command{EndSessions}
 
@@ -74,6 +74,6 @@ func CommandAndCollection(msg bsoncore.Document) (Command, string) {
 
 func IsIsMasterDoc(doc bsoncore.Document) bool {
 	isMaster, _ := doc.Lookup(IsMaster).Int32OK()
-	ismaster, _ := doc.Lookup(strings.ToLower(IsMaster)).Int32OK()
+	ismaster, _ := doc.Lookup(Ismaster).Int32OK()
 	return ismaster+isMaster > 0
 }
