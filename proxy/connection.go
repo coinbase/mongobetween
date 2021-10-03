@@ -105,10 +105,7 @@ func (c *connection) handleMessage() (err error) {
 	}
 
 	if unacknowledged {
-		c.log.Debug(
-			"Unacknowledged request",
-			zap.Int32("op_code", int32(res.Op.OpCode())),
-		)
+		c.log.Debug("Unacknowledged request")
 		return
 	}
 
