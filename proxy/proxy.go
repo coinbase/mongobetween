@@ -22,18 +22,20 @@ const restartSleep = 1 * time.Second
 type Proxy struct {
 	log    *zap.Logger
 	statsd *statsd.Client
+	config Config
 
-	network string
-	address string
-	unlink  bool
-	ping    bool
-	opts    *options.ClientOptions
+	network  string
+	address  string
+	unlink   bool
+	ping     bool
+	opts     *options.ClientOptions
+	failover *options.ClientOptions
 
 	quit chan interface{}
 	kill chan interface{}
 }
 
-func NewProxy(log *zap.Logger, sd *statsd.Client, label, network, address string, unlink, ping bool, opts *options.ClientOptions) (*Proxy, error) {
+func NewProxy(log *zap.Logger, sd *statsd.Client, config Config, label, network, address string, unlink, ping bool, opts, failover *options.ClientOptions) (*Proxy, error) {
 	if label != "" {
 		log = log.With(zap.String("cluster", label))
 
@@ -46,12 +48,14 @@ func NewProxy(log *zap.Logger, sd *statsd.Client, label, network, address string
 	return &Proxy{
 		log:    log,
 		statsd: sd,
+		config: config,
 
-		network: network,
-		address: address,
-		unlink:  unlink,
-		ping:    ping,
-		opts:    opts,
+		network:  network,
+		address:  address,
+		unlink:   unlink,
+		ping:     ping,
+		opts:     opts,
+		failover: failover,
 
 		quit: make(chan interface{}),
 		kill: make(chan interface{}),
@@ -101,10 +105,19 @@ func (p *Proxy) run() error {
 	}
 	defer m.Close()
 
-	return p.listen(m)
+	var mf *mongo.Mongo
+	if p.failover != nil {
+		mf, err = mongo.Connect(p.log, p.statsd, p.failover, p.ping)
+		if err != nil {
+			return err
+		}
+		defer mf.Close()
+	}
+
+	return p.listen(m, mf)
 }
 
-func (p *Proxy) listen(m *mongo.Mongo) error {
+func (p *Proxy) listen(m, mf *mongo.Mongo) error {
 	if strings.Contains(p.network, "unix") {
 		oldUmask := syscall.Umask(0)
 		defer syscall.Umask(oldUmask)
@@ -128,11 +141,11 @@ func (p *Proxy) listen(m *mongo.Mongo) error {
 		}
 	}()
 
-	p.accept(l, m)
+	p.accept(l, m, mf)
 	return nil
 }
 
-func (p *Proxy) accept(l net.Listener, m *mongo.Mongo) {
+func (p *Proxy) accept(l net.Listener, m, mf *mongo.Mongo) {
 	var wg sync.WaitGroup
 	defer func() {
 		p.log.Info("Waiting for open connections")
@@ -165,7 +178,7 @@ func (p *Proxy) accept(l net.Listener, m *mongo.Mongo) {
 		opened("connection_opened", []string{})
 		go func() {
 			log.Info("Accept")
-			handleConnection(log, p.statsd, c, m, p.kill)
+			handleConnection(log, p.statsd, p.config, c, m, mf, p.kill)
 
 			_ = c.Close()
 			log.Info("Close")

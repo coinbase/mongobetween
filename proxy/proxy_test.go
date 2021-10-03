@@ -141,7 +141,7 @@ func setupProxy(t *testing.T) *Proxy {
 	assert.Nil(t, err)
 
 	opts := options.Client().ApplyURI(uri)
-	proxy, err := NewProxy(zap.L(), sd, "label", "tcp4", fmt.Sprintf(":%d", proxyPort), false, true, opts)
+	proxy, err := NewProxy(zap.L(), sd, &NoConfig{}, "label", "tcp4", fmt.Sprintf(":%d", proxyPort), false, true, opts, nil)
 	assert.Nil(t, err)
 	return proxy
 }

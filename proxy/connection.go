@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,14 +17,16 @@ import (
 type connection struct {
 	log    *zap.Logger
 	statsd *statsd.Client
+	config Config
 
-	conn   net.Conn
-	client *mongo.Mongo
-	kill   chan interface{}
-	buffer []byte
+	conn     net.Conn
+	client   *mongo.Mongo
+	failover *mongo.Mongo
+	kill     chan interface{}
+	buffer   []byte
 }
 
-func handleConnection(log *zap.Logger, sd *statsd.Client, conn net.Conn, client *mongo.Mongo, kill chan interface{}) {
+func handleConnection(log *zap.Logger, sd *statsd.Client, config Config, conn net.Conn, client, failover *mongo.Mongo, kill chan interface{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error("Connection crashed", zap.String("panic", fmt.Sprintf("%v", r)), zap.String("stack", string(debug.Stack())))
@@ -31,11 +34,13 @@ func handleConnection(log *zap.Logger, sd *statsd.Client, conn net.Conn, client 
 	}()
 
 	c := connection{
-		log:    log,
-		statsd: sd,
-		conn:   conn,
-		client: client,
-		kill:   kill,
+		log:      log,
+		statsd:   sd,
+		config:   config,
+		conn:     conn,
+		client:   client,
+		failover: failover,
+		kill:     kill,
 	}
 	c.processMessages()
 }
@@ -94,6 +99,12 @@ func (c *connection) handleMessage() (err error) {
 		zap.String("collection", collection),
 		zap.Int("request_size", len(wm)),
 	)
+
+	if mongo.IsWrite(command) && c.config.IsWritesDisabled() {
+		// TODO should we write an error to the connection to prevent churn?
+		err = errors.New("writes disabled")
+		return
+	}
 
 	req := &mongo.Message{
 		Wm: wm,
@@ -156,6 +167,9 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 		requestID := msg.Op.RequestID()
 		c.log.Debug("Non-proxied ismaster response", zap.Int32("request_id", requestID))
 		return mongo.IsMasterResponse(requestID, c.client.Description().Kind)
+	}
+	if c.config.IsFailover() && c.failover != nil {
+		return c.failover.RoundTrip(msg, tags)
 	}
 	return c.client.RoundTrip(msg, tags)
 }

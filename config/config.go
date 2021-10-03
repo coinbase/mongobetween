@@ -33,9 +33,11 @@ type Config struct {
 }
 
 type client struct {
-	address string
-	label   string
-	opts    *options.ClientOptions
+	address  string
+	label    string
+	opts     *options.ClientOptions
+	failover *options.ClientOptions
+	config   proxy.Config
 }
 
 func ParseFlags() *Config {
@@ -62,7 +64,7 @@ func (c *Config) Proxies(log *zap.Logger) (proxies []*proxy.Proxy, err error) {
 		return nil, err
 	}
 	for _, client := range c.clients {
-		p, err := proxy.NewProxy(log, s, client.label, c.network, client.address, c.unlink, c.ping, client.opts)
+		p, err := proxy.NewProxy(log, s, client.config, client.label, c.network, client.address, c.unlink, c.ping, client.opts, client.failover)
 		if err != nil {
 			return nil, err
 		}
@@ -141,14 +143,28 @@ func parseFlags() (*Config, error) {
 
 	var clients []client
 	for address, uri := range addressMap {
-		label, opts, err := clientOptions(uri, username, password)
+		uris := strings.SplitN(uri, "|", 3)
+		label, opts, err := clientOptions(uris[0], username, password)
 		if err != nil {
 			return nil, err
 		}
+		var failover *options.ClientOptions
+		var config proxy.Config
+		if len(uris) == 3 {
+			_, failover, err = clientOptions(uris[1], username, password)
+			config = proxy.NewConfig(uris[2])
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			config = &proxy.NoConfig{}
+		}
 		clients = append(clients, client{
-			address: address,
-			label:   label,
-			opts:    opts,
+			address:  address,
+			label:    label,
+			opts:     opts,
+			failover: failover,
+			config:   config,
 		})
 	}
 

@@ -76,7 +76,7 @@ func TestRoundTripProcessError(t *testing.T) {
 	assert.Nil(t, err)
 
 	opts := options.Client().ApplyURI(uri)
-	p, err := proxy.NewProxy(zap.L(), sd, "label", "tcp4", ":27019", false, true, opts)
+	p, err := proxy.NewProxy(zap.L(), sd, &proxy.NoConfig{}, "label", "tcp4", ":27019", false, true, opts, nil)
 	assert.Nil(t, err)
 
 	go func() {
