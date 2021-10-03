@@ -93,6 +93,11 @@ func (c *connection) handleMessage() (err error) {
 		return
 	}
 
+	if ce := c.log.Check(zap.DebugLevel, "Request"); ce != nil {
+		command, collection := op.CommandAndCollection()
+		ce.Write(zap.Int32("op_code", int32(op.OpCode())), zap.Int("request_size", len(wm)), zap.String("command", string(command)), zap.String("collection", collection))
+	}
+
 	isMaster = op.IsIsMaster()
 	req = &mongo.Message{
 		Wm: wm,
