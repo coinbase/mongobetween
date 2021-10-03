@@ -207,12 +207,13 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		return nil, errors.New("server ErrorProcessor type assertion failed")
 	}
 
-	wm, err := m.roundTrip(conn, msg.Wm, msg.Op.Unacknowledged(), tags)
+	unacknowledged := msg.Op.Unacknowledged()
+	wm, err := m.roundTrip(conn, msg.Wm, unacknowledged, tags)
 	if err != nil {
 		m.processError(err, ep, addr, conn)
 		return nil, err
 	}
-	if msg.Op.Unacknowledged() {
+	if unacknowledged {
 		return &Message{}, nil
 	}
 

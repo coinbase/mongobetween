@@ -8,28 +8,28 @@ type Command string
 
 const (
 	Unknown           Command = "unknown"
-	AbortTransaction          = "abortTransaction"
-	Aggregate                 = "aggregate"
-	CommitTransaction         = "commandTransaction"
-	Count                     = "count"
-	CreateIndexes             = "createIndexes"
-	Delete                    = "delete"
-	Distinct                  = "distinct"
-	Drop                      = "drop"
-	DropDatabase              = "dropDatabase"
-	DropIndexes               = "dropIndexes"
-	EndSessions               = "endSessions"
-	Find                      = "find"
-	FindAndModify             = "findAndModify"
-	GetMore                   = "getMore"
-	Insert                    = "insert"
-	IsMaster                  = "isMaster"
-	Ismaster                  = "ismaster"
-	ListCollections           = "listCollections"
-	ListIndexes               = "listIndexes"
-	ListDatabases             = "listDatabases"
-	MapReduce                 = "mapReduce"
-	Update                    = "update"
+	AbortTransaction  Command = "abortTransaction"
+	Aggregate         Command = "aggregate"
+	CommitTransaction Command = "commandTransaction"
+	Count             Command = "count"
+	CreateIndexes     Command = "createIndexes"
+	Delete            Command = "delete"
+	Distinct          Command = "distinct"
+	Drop              Command = "drop"
+	DropDatabase      Command = "dropDatabase"
+	DropIndexes       Command = "dropIndexes"
+	EndSessions       Command = "endSessions"
+	Find              Command = "find"
+	FindAndModify     Command = "findAndModify"
+	GetMore           Command = "getMore"
+	Insert            Command = "insert"
+	IsMaster          Command = "isMaster"
+	Ismaster          Command = "ismaster"
+	ListCollections   Command = "listCollections"
+	ListIndexes       Command = "listIndexes"
+	ListDatabases     Command = "listDatabases"
+	MapReduce         Command = "mapReduce"
+	Update            Command = "update"
 )
 
 var collectionStrings = []Command{Aggregate, Count, CreateIndexes, Delete, Distinct, Drop, DropIndexes, Find, FindAndModify, Insert, ListIndexes, MapReduce, Update}
@@ -73,7 +73,7 @@ func CommandAndCollection(msg bsoncore.Document) (Command, string) {
 }
 
 func IsIsMasterDoc(doc bsoncore.Document) bool {
-	isMaster, _ := doc.Lookup(IsMaster).Int32OK()
-	ismaster, _ := doc.Lookup(Ismaster).Int32OK()
+	isMaster, _ := doc.Lookup(string(IsMaster)).Int32OK()
+	ismaster, _ := doc.Lookup(string(Ismaster)).Int32OK()
 	return ismaster+isMaster > 0
 }

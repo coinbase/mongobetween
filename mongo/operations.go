@@ -646,7 +646,7 @@ func decodeUpdate(reqID int32, wm []byte) (*opUpdate, error) {
 		return nil, errors.New("malformed update message: selector document")
 	}
 
-	u.update, wm, ok = bsoncore.ReadDocument(wm)
+	u.update, _, ok = bsoncore.ReadDocument(wm)
 	if !ok {
 		return nil, errors.New("malformed update message: update document")
 	}
@@ -806,7 +806,7 @@ func decodeDelete(reqID int32, wm []byte) (*opDelete, error) {
 		return nil, errors.New("malformed delete message: missing OP_DELETE flags")
 	}
 
-	d.selector, wm, ok = bsoncore.ReadDocument(wm)
+	d.selector, _, ok = bsoncore.ReadDocument(wm)
 	if !ok {
 		return nil, errors.New("malformed delete message: selector document")
 	}
@@ -879,7 +879,7 @@ func decodeKillCursors(reqID int32, wm []byte) (*opKillCursors, error) {
 		return nil, errors.New("malformed kill_cursors message: missing number of cursor IDs")
 	}
 
-	k.cursorIDs, wm, ok = wiremessage.ReadKillCursorsCursorIDs(wm, numIDs)
+	k.cursorIDs, _, ok = wiremessage.ReadKillCursorsCursorIDs(wm, numIDs)
 	if !ok {
 		return nil, errors.New("malformed kill_cursors message: missing cursor IDs")
 	}
