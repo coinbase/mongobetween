@@ -16,39 +16,6 @@ type Message struct {
 	Op Operation
 }
 
-type Command uint
-
-const (
-	Unknown Command = iota
-	AbortTransaction
-	Aggregate
-	CommitTransaction
-	Count
-	CreateIndexes
-	Delete
-	Distinct
-	Drop
-	DropDatabase
-	DropIndexes
-	EndSessions
-	Find
-	FindAndModify
-	GetMore
-	Insert
-	IsMaster
-	ListCollections
-	ListIndexes
-	ListDatabases
-	MapReduce
-	Update
-)
-
-var writes = []Command{CommitTransaction, Delete, FindAndModify, Insert, Update}
-var collectionStrings = []Command{Aggregate, Count, CreateIndexes, Delete, Distinct, Drop, DropIndexes, Find, FindAndModify, Insert, ListIndexes, MapReduce, Update}
-var int32Commands = []Command{AbortTransaction, Aggregate, DropDatabase, IsMaster, ListCollections, ListDatabases}
-var int64Commands = []Command{GetMore}
-var arrayCommands = []Command{EndSessions}
-
 type Operation interface {
 	fmt.Stringer
 	OpCode() wiremessage.OpCode
@@ -229,9 +196,7 @@ func (q *opQuery) IsIsMaster() bool {
 	if q.fullCollectionName != "admin.$cmd" {
 		return false
 	}
-	ismaster, _ := q.query.Lookup("ismaster").Int32OK()
-	isMaster, _ := q.query.Lookup("isMaster").Int32OK()
-	return ismaster+isMaster > 0
+	return IsIsMasterDoc(q.query)
 }
 
 func (q *opQuery) Error() error {
@@ -279,9 +244,7 @@ func (o *opMsgSectionSingle) cursorID() (cursorID int64, ok bool) {
 
 func (o *opMsgSectionSingle) isIsMaster() bool {
 	if db, ok := o.msg.Lookup("$db").StringValueOK(); ok && db == "admin" {
-		ismaster, _ := o.msg.Lookup("ismaster").Int32OK()
-		isMaster, _ := o.msg.Lookup("isMaster").Int32OK()
-		return ismaster+isMaster > 0
+		return IsIsMasterDoc(o.msg)
 	}
 	return false
 }
@@ -292,8 +255,7 @@ func (o *opMsgSectionSingle) append(buffer []byte) []byte {
 }
 
 func (o *opMsgSectionSingle) commandAndCollection() (Command, string) {
-	// TODO!
-	return Unknown, ""
+	return CommandAndCollection(o.msg)
 }
 
 func (o *opMsgSectionSingle) String() string {
