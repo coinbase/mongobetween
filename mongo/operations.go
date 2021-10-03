@@ -295,6 +295,10 @@ func (o *opMsgSectionSingle) String() string {
 	return fmt.Sprintf("{ SectionSingle msg: %s }", o.msg.String())
 }
 
+func (o *opMsgSectionSingle) String() string {
+	return fmt.Sprintf("{ SectionSingle msg: %s }", o.msg.String())
+}
+
 type opMsgSectionSequence struct {
 	identifier string
 	msgs       []bsoncore.Document
