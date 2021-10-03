@@ -16,6 +16,39 @@ type Message struct {
 	Op Operation
 }
 
+type Command uint
+
+const (
+	Unknown Command = iota
+	AbortTransaction
+	Aggregate
+	CommitTransaction
+	Count
+	CreateIndexes
+	Delete
+	Distinct
+	Drop
+	DropDatabase
+	DropIndexes
+	EndSessions
+	Find
+	FindAndModify
+	GetMore
+	Insert
+	IsMaster
+	ListCollections
+	ListIndexes
+	ListDatabases
+	MapReduce
+	Update
+)
+
+var writes = []Command{CommitTransaction, Delete, FindAndModify, Insert, Update}
+var collectionStrings = []Command{Aggregate, Count, CreateIndexes, Delete, Distinct, Drop, DropIndexes, Find, FindAndModify, Insert, ListIndexes, MapReduce, Update}
+var int32Commands = []Command{AbortTransaction, Aggregate, DropDatabase, IsMaster, ListCollections, ListDatabases}
+var int64Commands = []Command{GetMore}
+var arrayCommands = []Command{EndSessions}
+
 type Operation interface {
 	fmt.Stringer
 	OpCode() wiremessage.OpCode
