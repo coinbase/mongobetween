@@ -160,12 +160,15 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 	defer func() {
 		if err != nil {
 			cursorID, _ := msg.Op.CursorID()
+			command, collection := msg.Op.CommandAndCollection()
 			m.log.Error(
 				"Round trip error",
 				zap.Error(err),
 				zap.Int64("cursor_id", cursorID),
 				zap.Int32("op_code", int32(msg.Op.OpCode())),
 				zap.String("address", addr.String()),
+				zap.String("command", string(command)),
+				zap.String("collection", collection),
 			)
 		}
 	}()

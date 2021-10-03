@@ -60,14 +60,26 @@ func (c *connection) processMessages() {
 
 func (c *connection) handleMessage() (err error) {
 	isMaster := false
-	var reqOpCode, resOpCode wiremessage.OpCode
+	var req, res *mongo.Message
 
 	defer func(start time.Time) {
+		var reqOpCode, resOpCode wiremessage.OpCode
+		collection := ""
+		command := mongo.Unknown
+		if req != nil {
+			command, collection = req.Op.CommandAndCollection()
+			reqOpCode = req.Op.OpCode()
+		}
+		if res != nil {
+			resOpCode = res.Op.OpCode()
+		}
 		_ = c.statsd.Timing("handle_message", time.Since(start), []string{
 			fmt.Sprintf("success:%v", err == nil),
 			fmt.Sprintf("is_master:%v", isMaster),
 			fmt.Sprintf("request_op_code:%v", reqOpCode),
 			fmt.Sprintf("response_op_code:%v", resOpCode),
+			fmt.Sprintf("command:%s", string(command)),
+			fmt.Sprintf("collection:%s", collection),
 		}, 1)
 	}(time.Now())
 
@@ -81,31 +93,25 @@ func (c *connection) handleMessage() (err error) {
 		return
 	}
 
-	c.log.Debug("Request", zap.Int32("op_code", int32(op.OpCode())), zap.Int("request_size", len(wm)))
-
 	isMaster = op.IsIsMaster()
-	req := &mongo.Message{
+	req = &mongo.Message{
 		Wm: wm,
 		Op: op,
 	}
-	reqOpCode = op.OpCode()
 
-	var res *mongo.Message
 	if res, err = c.roundTrip(req, isMaster); err != nil {
 		return
 	}
 	if req.Op.Unacknowledged() {
-		c.log.Debug("Unacknowledged request", zap.Int32("op_code", int32(resOpCode)))
+		c.log.Debug("Unacknowledged request", zap.Int32("op_code", int32(res.Op.OpCode())))
 		return
 	}
-
-	resOpCode = res.Op.OpCode()
 
 	if _, err = c.conn.Write(res.Wm); err != nil {
 		return
 	}
 
-	c.log.Debug("Response", zap.Int32("op_code", int32(resOpCode)), zap.Int("response_size", len(res.Wm)))
+	c.log.Debug("Response", zap.Int32("op_code", int32(res.Op.OpCode())), zap.Int("response_size", len(res.Wm)))
 	return
 }
 
