@@ -196,7 +196,7 @@ func (m *Mongo) RoundTrip(msg *Message) (_ *Message, err error) {
 		}
 	}()
 
-	// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.5/x/mongo/driver/operation.go#L369-L371
+	// see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L430-L432
 	ep, ok := server.(driver.ErrorProcessor)
 	if !ok {
 		return nil, errors.New("server ErrorProcessor type assertion failed")
@@ -276,7 +276,7 @@ func (m *Mongo) checkoutConnection(server driver.Server) (conn driver.Connection
 	return conn, nil
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.4/x/mongo/driver/operation.go#L532-L561
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L664-L681
 func (m *Mongo) roundTrip(conn driver.Connection, req []byte, unacknowledged bool) (res []byte, err error) {
 	defer func(start time.Time) {
 		tags := []string{
@@ -344,7 +344,7 @@ func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.A
 	}
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.5/x/mongo/driver/topology/server.go#L300-L341
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/topology/server.go#L432-L505
 func errorChangesTopology(err error) bool {
 	if cerr, ok := err.(driver.Error); ok && (cerr.NodeIsRecovering() || cerr.NotMaster()) {
 		return true
@@ -369,7 +369,7 @@ func errorChangesTopology(err error) bool {
 	return true
 }
 
-// see https://github.com/mongodb/mongo-go-driver/blob/v1.3.5/x/mongo/driver/topology/server.go#L605-L625
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/topology/server.go#L949-L969
 func unwrapConnectionError(err error) error {
 	connErr, ok := err.(topology.ConnectionError)
 	if ok {
