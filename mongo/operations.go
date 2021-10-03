@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"go.mongodb.org/mongo-driver/x/mongo/driver"
-
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
+	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
 )
 
@@ -248,7 +247,7 @@ func (q *opQuery) CommandAndCollection() (Command, string) {
 }
 
 func (q *opQuery) String() string {
-	return fmt.Sprintf("{ OpQuery flags: %s, collName: %s, numberToSkip: %d, numberToReturn: %d, query: %s, returnFieldsSelector: %s }", q.flags.String(), q.collName, q.numberToSkip, q.numberToReturn, q.query.String(), q.returnFieldsSelector.String())
+	return fmt.Sprintf("{ OpQuery flags: %s, fullCollectionName: %s, numberToSkip: %d, numberToReturn: %d, query: %s, returnFieldsSelector: %s }", q.flags.String(), q.fullCollectionName, q.numberToSkip, q.numberToReturn, q.query.String(), q.returnFieldsSelector.String())
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-msg
@@ -732,6 +731,10 @@ func (u *opUpdate) CommandAndCollection() (Command, string) {
 	return Update, u.fullCollectionName
 }
 
+func (u *opUpdate) String() string {
+	return fmt.Sprintf("{ OpQuery fullCollectionName: %s, flags: %d, selector: %s, update: %s }", u.fullCollectionName, u.flags, u.selector.String(), u.update.String())
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op_insert
 type opInsert struct {
 	reqID              int32
@@ -802,6 +805,14 @@ func (i *opInsert) Unacknowledged() bool {
 
 func (i *opInsert) CommandAndCollection() (Command, string) {
 	return Insert, i.fullCollectionName
+}
+
+func (i *opInsert) String() string {
+	var documents []string
+	for _, document := range i.documents {
+		documents = append(documents, document.String())
+	}
+	return fmt.Sprintf("{ OpInsert flags: %d, fullCollectionName: %s, documents: %s }", i.flags, i.fullCollectionName, strings.Join(documents, ", "))
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op_insert
@@ -879,6 +890,10 @@ func (d *opDelete) CommandAndCollection() (Command, string) {
 	return Delete, d.fullCollectionName
 }
 
+func (d *opDelete) String() string {
+	return fmt.Sprintf("{ OpDelete fullCollectionName: %s, flags: %d, selector: %s }", d.fullCollectionName, d.flags, d.selector.String())
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op_kill_cursors
 type opKillCursors struct {
 	reqID     int32
@@ -947,6 +962,10 @@ func (k *opKillCursors) Unacknowledged() bool {
 
 func (k *opKillCursors) CommandAndCollection() (Command, string) {
 	return Unknown, ""
+}
+
+func (k *opKillCursors) String() string {
+	return fmt.Sprintf("{ OpKillCursors cursorIDs: %v }", k.cursorIDs)
 }
 
 func appendi32(dst []byte, i32 int32) []byte {
