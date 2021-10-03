@@ -57,7 +57,7 @@ func TestRoundTrip(t *testing.T) {
 
 	msg := insertOpMsg(t)
 
-	res, err := m.RoundTrip(msg)
+	res, err := m.RoundTrip(msg, []string{})
 	assert.Nil(t, err)
 
 	single := mongo.ExtractSingleOpMsg(t, res)
@@ -90,7 +90,7 @@ func TestRoundTripProcessError(t *testing.T) {
 
 	msg := insertOpMsg(t)
 
-	res, err := m.RoundTrip(msg)
+	res, err := m.RoundTrip(msg, []string{})
 	assert.Nil(t, err)
 
 	single := mongo.ExtractSingleOpMsg(t, res)
@@ -103,7 +103,7 @@ func TestRoundTripProcessError(t *testing.T) {
 	// kill the proxy
 	p.Kill()
 
-	_, err = m.RoundTrip(msg)
+	_, err = m.RoundTrip(msg, []string{})
 	assert.Error(t, driver.Error{}, err)
 
 	assert.Equal(t, description.ServerKind(description.Unknown), m.Description().Servers[0].Kind, "Failed to update the server Kind to Unknown")

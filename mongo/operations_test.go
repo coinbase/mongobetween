@@ -18,7 +18,7 @@ func TestOpQuery(t *testing.T) {
 
 	op := opQuery{
 		flags:                wiremessage.AwaitData,
-		collName:             "trainers",
+		fullCollectionName:   "trainers",
 		numberToSkip:         5,
 		numberToReturn:       7,
 		query:                doc1,
@@ -31,7 +31,7 @@ func TestOpQuery(t *testing.T) {
 
 	msg := dec.(*opQuery)
 	assert.Equal(t, wiremessage.AwaitData, msg.flags)
-	assert.Equal(t, "trainers", msg.collName)
+	assert.Equal(t, "trainers", msg.fullCollectionName)
 	assert.Equal(t, int32(5), msg.numberToSkip)
 	assert.Equal(t, int32(7), msg.numberToReturn)
 	assert.Equal(t, doc1, []byte(msg.query))
@@ -53,8 +53,8 @@ func TestOpQueryIsIsMaster(t *testing.T) {
 	assert.Nil(t, err)
 
 	op := opQuery{
-		collName: "admin.$cmd",
-		query:    doc,
+		fullCollectionName: "admin.$cmd",
+		query:              doc,
 	}
 	assert.True(t, op.IsIsMaster())
 }
