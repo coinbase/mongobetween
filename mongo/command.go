@@ -32,7 +32,7 @@ const (
 	Update            Command = "update"
 )
 
-var collectionStrings = []Command{Aggregate, Count, CreateIndexes, Delete, Distinct, Drop, DropIndexes, Find, FindAndModify, Insert, ListIndexes, MapReduce, Update}
+var collectionCommands = []Command{Aggregate, Count, CreateIndexes, Delete, Distinct, Drop, DropIndexes, Find, FindAndModify, Insert, ListIndexes, MapReduce, Update}
 var int32Commands = []Command{AbortTransaction, Aggregate, CommitTransaction, DropDatabase, IsMaster, Ismaster, ListCollections, ListDatabases}
 var int64Commands = []Command{GetMore}
 var arrayCommands = []Command{EndSessions}
@@ -46,7 +46,7 @@ func IsWrite(command Command) bool {
 }
 
 func CommandAndCollection(msg bsoncore.Document) (Command, string) {
-	for _, s := range collectionStrings {
+	for _, s := range collectionCommands {
 		if coll, ok := msg.Lookup(string(s)).StringValueOK(); ok {
 			return s, coll
 		}
