@@ -192,7 +192,10 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	}
 
 	addr = conn.Address()
-	tags = append(tags, fmt.Sprintf("address:%s", conn.Address().String()))
+	tags = append(
+		tags,
+		fmt.Sprintf("address:%s", conn.Address().String()),
+	)
 
 	defer func() {
 		err := conn.Close()
