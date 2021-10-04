@@ -1,13 +1,13 @@
 package mongo
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
 
-	"go.mongodb.org/mongo-driver/x/mongo/driver"
-
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
+	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
 )
 
@@ -25,6 +25,7 @@ type Operation interface {
 	RequestID() int32
 	Error() error
 	Unacknowledged() bool
+	CommandAndCollection() (Command, string)
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1361-L1426
@@ -46,6 +47,14 @@ func Decode(wm []byte) (Operation, error) {
 		op, err = decodeReply(reqID, wmBody)
 	case wiremessage.OpGetMore:
 		op, err = decodeGetMore(reqID, wmBody)
+	case wiremessage.OpUpdate:
+		op, err = decodeUpdate(reqID, wmBody)
+	case wiremessage.OpInsert:
+		op, err = decodeInsert(reqID, wmBody)
+	case wiremessage.OpDelete:
+		op, err = decodeDelete(reqID, wmBody)
+	case wiremessage.OpKillCursors:
+		op, err = decodeKillCursors(reqID, wmBody)
 	default:
 		op = &opUnknown{
 			opCode: opCode,
@@ -93,6 +102,10 @@ func (o *opUnknown) Unacknowledged() bool {
 	return false
 }
 
+func (o *opUnknown) CommandAndCollection() (Command, string) {
+	return Unknown, ""
+}
+
 func (o *opUnknown) String() string {
 	return fmt.Sprintf("{ OpUnknown opCode: %d, wm: %s }", o.opCode, o.wm)
 }
@@ -101,7 +114,7 @@ func (o *opUnknown) String() string {
 type opQuery struct {
 	reqID                int32
 	flags                wiremessage.QueryFlag
-	collName             string
+	fullCollectionName   string
 	numberToSkip         int32
 	numberToReturn       int32
 	query                bsoncore.Document
@@ -120,7 +133,7 @@ func decodeQuery(reqID int32, wm []byte) (*opQuery, error) {
 		return nil, errors.New("malformed query message: missing OP_QUERY flags")
 	}
 
-	q.collName, wm, ok = wiremessage.ReadQueryFullCollectionName(wm)
+	q.fullCollectionName, wm, ok = wiremessage.ReadQueryFullCollectionName(wm)
 	if !ok {
 		return nil, errors.New("malformed query message: full collection name")
 	}
@@ -159,7 +172,7 @@ func (q *opQuery) Encode(responseTo int32) []byte {
 	var buffer []byte
 	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpQuery)
 	buffer = wiremessage.AppendQueryFlags(buffer, q.flags)
-	buffer = wiremessage.AppendQueryFullCollectionName(buffer, q.collName)
+	buffer = wiremessage.AppendQueryFullCollectionName(buffer, q.fullCollectionName)
 	buffer = wiremessage.AppendQueryNumberToSkip(buffer, q.numberToSkip)
 	buffer = wiremessage.AppendQueryNumberToReturn(buffer, q.numberToReturn)
 	buffer = append(buffer, q.query...)
@@ -180,12 +193,10 @@ func (q *opQuery) RequestID() int32 {
 }
 
 func (q *opQuery) IsIsMaster() bool {
-	if q.collName != "admin.$cmd" {
+	if q.fullCollectionName != "admin.$cmd" {
 		return false
 	}
-	ismaster, _ := q.query.Lookup("ismaster").Int32OK()
-	isMaster, _ := q.query.Lookup("isMaster").Int32OK()
-	return ismaster+isMaster > 0
+	return IsIsMasterDoc(q.query)
 }
 
 func (q *opQuery) Error() error {
@@ -196,8 +207,12 @@ func (q *opQuery) Unacknowledged() bool {
 	return false
 }
 
+func (q *opQuery) CommandAndCollection() (Command, string) {
+	return Find, q.fullCollectionName
+}
+
 func (q *opQuery) String() string {
-	return fmt.Sprintf("{ OpQuery flags: %s, collName: %s, numberToSkip: %d, numberToReturn: %d, query: %s, returnFieldsSelector: %s }", q.flags.String(), q.collName, q.numberToSkip, q.numberToReturn, q.query.String(), q.returnFieldsSelector.String())
+	return fmt.Sprintf("{ OpQuery flags: %s, fullCollectionName: %s, numberToSkip: %d, numberToReturn: %d, query: %s, returnFieldsSelector: %s }", q.flags.String(), q.fullCollectionName, q.numberToSkip, q.numberToReturn, q.query.String(), q.returnFieldsSelector.String())
 }
 
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op-msg
@@ -213,6 +228,7 @@ type opMsgSection interface {
 	cursorID() (cursorID int64, ok bool)
 	isIsMaster() bool
 	append(buffer []byte) []byte
+	commandAndCollection() (Command, string)
 }
 
 type opMsgSectionSingle struct {
@@ -228,9 +244,7 @@ func (o *opMsgSectionSingle) cursorID() (cursorID int64, ok bool) {
 
 func (o *opMsgSectionSingle) isIsMaster() bool {
 	if db, ok := o.msg.Lookup("$db").StringValueOK(); ok && db == "admin" {
-		ismaster, _ := o.msg.Lookup("ismaster").Int32OK()
-		isMaster, _ := o.msg.Lookup("isMaster").Int32OK()
-		return ismaster+isMaster > 0
+		return IsIsMasterDoc(o.msg)
 	}
 	return false
 }
@@ -238,6 +252,10 @@ func (o *opMsgSectionSingle) isIsMaster() bool {
 func (o *opMsgSectionSingle) append(buffer []byte) []byte {
 	buffer = wiremessage.AppendMsgSectionType(buffer, wiremessage.SingleDocument)
 	return append(buffer, o.msg...)
+}
+
+func (o *opMsgSectionSingle) commandAndCollection() (Command, string) {
+	return CommandAndCollection(o.msg)
 }
 
 func (o *opMsgSectionSingle) String() string {
@@ -273,6 +291,10 @@ func (o *opMsgSectionSequence) append(buffer []byte) []byte {
 	}
 
 	return buffer
+}
+
+func (o *opMsgSectionSequence) commandAndCollection() (Command, string) {
+	return Unknown, ""
 }
 
 func (o *opMsgSectionSequence) String() string {
@@ -393,6 +415,16 @@ func (m *opMsg) Unacknowledged() bool {
 	return m.flags&wiremessage.MoreToCome == wiremessage.MoreToCome
 }
 
+func (m *opMsg) CommandAndCollection() (Command, string) {
+	for _, section := range m.sections {
+		command, collection := section.commandAndCollection()
+		if command != Unknown {
+			return command, collection
+		}
+	}
+	return Unknown, ""
+}
+
 func (m *opMsg) String() string {
 	var sections []string
 	for _, section := range m.sections {
@@ -488,6 +520,10 @@ func (r *opReply) Unacknowledged() bool {
 	return false
 }
 
+func (r *opReply) CommandAndCollection() (Command, string) {
+	return Find, ""
+}
+
 func (r *opReply) String() string {
 	var documents []string
 	for _, document := range r.documents {
@@ -572,8 +608,326 @@ func (g *opGetMore) Unacknowledged() bool {
 	return false
 }
 
+func (g *opGetMore) CommandAndCollection() (Command, string) {
+	return GetMore, g.fullCollectionName
+}
+
 func (g *opGetMore) String() string {
 	return fmt.Sprintf("{ OpGetMore fullCollectionName: %s, numberToReturn: %d, cursorID: %d }", g.fullCollectionName, g.numberToReturn, g.cursorID)
+}
+
+// https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op_update
+type opUpdate struct {
+	reqID              int32
+	fullCollectionName string
+	flags              int32
+	selector           bsoncore.Document
+	update             bsoncore.Document
+}
+
+func decodeUpdate(reqID int32, wm []byte) (*opUpdate, error) {
+	var ok bool
+	u := opUpdate{
+		reqID: reqID,
+	}
+
+	u.fullCollectionName, wm, ok = readCString(wm)
+	if !ok {
+		return nil, errors.New("malformed update message: full collection name")
+	}
+
+	u.flags, wm, ok = readi32(wm)
+	if !ok {
+		return nil, errors.New("malformed update message: missing OP_UPDATE flags")
+	}
+
+	u.selector, wm, ok = bsoncore.ReadDocument(wm)
+	if !ok {
+		return nil, errors.New("malformed update message: selector document")
+	}
+
+	u.update, _, ok = bsoncore.ReadDocument(wm)
+	if !ok {
+		return nil, errors.New("malformed update message: update document")
+	}
+
+	return &u, nil
+}
+
+func (u *opUpdate) OpCode() wiremessage.OpCode {
+	return wiremessage.OpUpdate
+}
+
+func (u *opUpdate) Encode(responseTo int32) []byte {
+	var buffer []byte
+	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpUpdate)
+	buffer = appendCString(buffer, u.fullCollectionName)
+	buffer = appendi32(buffer, u.flags)
+	buffer = append(buffer, u.selector...)
+	buffer = append(buffer, u.update...)
+	buffer = bsoncore.UpdateLength(buffer, idx, int32(len(buffer[idx:])))
+	return buffer
+}
+
+func (u *opUpdate) IsIsMaster() bool {
+	return false
+}
+
+func (u *opUpdate) CursorID() (cursorID int64, ok bool) {
+	return 0, false
+}
+
+func (u *opUpdate) RequestID() int32 {
+	return u.reqID
+}
+
+func (u *opUpdate) Error() error {
+	return nil
+}
+
+func (u *opUpdate) Unacknowledged() bool {
+	return false
+}
+
+func (u *opUpdate) CommandAndCollection() (Command, string) {
+	return Update, u.fullCollectionName
+}
+
+func (u *opUpdate) String() string {
+	return fmt.Sprintf("{ OpQuery fullCollectionName: %s, flags: %d, selector: %s, update: %s }", u.fullCollectionName, u.flags, u.selector.String(), u.update.String())
+}
+
+// https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op_insert
+type opInsert struct {
+	reqID              int32
+	flags              int32
+	fullCollectionName string
+	documents          []bsoncore.Document
+}
+
+func decodeInsert(reqID int32, wm []byte) (*opInsert, error) {
+	var ok bool
+	i := opInsert{
+		reqID: reqID,
+	}
+
+	i.flags, wm, ok = readi32(wm)
+	if !ok {
+		return nil, errors.New("malformed insert message: missing OP_INSERT flags")
+	}
+
+	i.fullCollectionName, wm, ok = readCString(wm)
+	if !ok {
+		return nil, errors.New("malformed insert message: full collection name")
+	}
+
+	i.documents, _, ok = wiremessage.ReadReplyDocuments(wm)
+	if !ok {
+		return nil, errors.New("malformed insert message: could not read documents")
+	}
+
+	return &i, nil
+}
+
+func (i *opInsert) OpCode() wiremessage.OpCode {
+	return wiremessage.OpInsert
+}
+
+func (i *opInsert) Encode(responseTo int32) []byte {
+	var buffer []byte
+	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpInsert)
+	buffer = appendi32(buffer, i.flags)
+	buffer = appendCString(buffer, i.fullCollectionName)
+	for _, doc := range i.documents {
+		buffer = append(buffer, doc...)
+	}
+	buffer = bsoncore.UpdateLength(buffer, idx, int32(len(buffer[idx:])))
+	return buffer
+}
+
+func (i *opInsert) IsIsMaster() bool {
+	return false
+}
+
+func (i *opInsert) CursorID() (cursorID int64, ok bool) {
+	return 0, false
+}
+
+func (i *opInsert) RequestID() int32 {
+	return i.reqID
+}
+
+func (i *opInsert) Error() error {
+	return nil
+}
+
+func (i *opInsert) Unacknowledged() bool {
+	return false
+}
+
+func (i *opInsert) CommandAndCollection() (Command, string) {
+	return Insert, i.fullCollectionName
+}
+
+func (i *opInsert) String() string {
+	var documents []string
+	for _, document := range i.documents {
+		documents = append(documents, document.String())
+	}
+	return fmt.Sprintf("{ OpInsert flags: %d, fullCollectionName: %s, documents: %s }", i.flags, i.fullCollectionName, strings.Join(documents, ", "))
+}
+
+// https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op_insert
+type opDelete struct {
+	reqID              int32
+	fullCollectionName string
+	flags              int32
+	selector           bsoncore.Document
+}
+
+func decodeDelete(reqID int32, wm []byte) (*opDelete, error) {
+	var ok bool
+	d := opDelete{
+		reqID: reqID,
+	}
+
+	_, wm, ok = readi32(wm)
+	if !ok {
+		return nil, errors.New("malformed delete message: missing zero")
+	}
+
+	d.fullCollectionName, wm, ok = readCString(wm)
+	if !ok {
+		return nil, errors.New("malformed delete message: full collection name")
+	}
+
+	d.flags, wm, ok = readi32(wm)
+	if !ok {
+		return nil, errors.New("malformed delete message: missing OP_DELETE flags")
+	}
+
+	d.selector, _, ok = bsoncore.ReadDocument(wm)
+	if !ok {
+		return nil, errors.New("malformed delete message: selector document")
+	}
+
+	return &d, nil
+}
+
+func (d *opDelete) OpCode() wiremessage.OpCode {
+	return wiremessage.OpDelete
+}
+
+func (d *opDelete) Encode(responseTo int32) []byte {
+	var buffer []byte
+	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpDelete)
+	buffer = appendCString(buffer, d.fullCollectionName)
+	buffer = appendi32(buffer, d.flags)
+	buffer = append(buffer, d.selector...)
+	buffer = bsoncore.UpdateLength(buffer, idx, int32(len(buffer[idx:])))
+	return buffer
+}
+
+func (d *opDelete) IsIsMaster() bool {
+	return false
+}
+
+func (d *opDelete) CursorID() (cursorID int64, ok bool) {
+	return 0, false
+}
+
+func (d *opDelete) RequestID() int32 {
+	return d.reqID
+}
+
+func (d *opDelete) Error() error {
+	return nil
+}
+
+func (d *opDelete) Unacknowledged() bool {
+	return false
+}
+
+func (d *opDelete) CommandAndCollection() (Command, string) {
+	return Delete, d.fullCollectionName
+}
+
+func (d *opDelete) String() string {
+	return fmt.Sprintf("{ OpDelete fullCollectionName: %s, flags: %d, selector: %s }", d.fullCollectionName, d.flags, d.selector.String())
+}
+
+// https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op_kill_cursors
+type opKillCursors struct {
+	reqID     int32
+	cursorIDs []int64
+}
+
+func decodeKillCursors(reqID int32, wm []byte) (*opKillCursors, error) {
+	var ok bool
+	k := opKillCursors{
+		reqID: reqID,
+	}
+
+	_, wm, ok = wiremessage.ReadKillCursorsZero(wm)
+	if !ok {
+		return nil, errors.New("malformed kill_cursors message: missing zero")
+	}
+
+	var numIDs int32
+	numIDs, wm, ok = wiremessage.ReadKillCursorsNumberIDs(wm)
+	if !ok {
+		return nil, errors.New("malformed kill_cursors message: missing number of cursor IDs")
+	}
+
+	k.cursorIDs, _, ok = wiremessage.ReadKillCursorsCursorIDs(wm, numIDs)
+	if !ok {
+		return nil, errors.New("malformed kill_cursors message: missing cursor IDs")
+	}
+
+	return &k, nil
+}
+
+func (k *opKillCursors) OpCode() wiremessage.OpCode {
+	return wiremessage.OpKillCursors
+}
+
+// see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation_legacy.go#L378-L384
+func (k *opKillCursors) Encode(responseTo int32) []byte {
+	var buffer []byte
+	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpKillCursors)
+	buffer = wiremessage.AppendKillCursorsZero(buffer)
+	buffer = wiremessage.AppendKillCursorsNumberIDs(buffer, int32(len(k.cursorIDs)))
+	buffer = wiremessage.AppendKillCursorsCursorIDs(buffer, k.cursorIDs)
+	buffer = bsoncore.UpdateLength(buffer, idx, int32(len(buffer[idx:])))
+	return buffer
+}
+
+func (k *opKillCursors) IsIsMaster() bool {
+	return false
+}
+
+func (k *opKillCursors) CursorID() (cursorID int64, ok bool) {
+	return 0, false
+}
+
+func (k *opKillCursors) RequestID() int32 {
+	return k.reqID
+}
+
+func (k *opKillCursors) Error() error {
+	return nil
+}
+
+func (k *opKillCursors) Unacknowledged() bool {
+	return false
+}
+
+func (k *opKillCursors) CommandAndCollection() (Command, string) {
+	return Unknown, ""
+}
+
+func (k *opKillCursors) String() string {
+	return fmt.Sprintf("{ OpKillCursors cursorIDs: %v }", k.cursorIDs)
 }
 
 func appendi32(dst []byte, i32 int32) []byte {
@@ -583,4 +937,20 @@ func appendi32(dst []byte, i32 int32) []byte {
 func appendCString(b []byte, str string) []byte {
 	b = append(b, str...)
 	return append(b, 0x00)
+}
+
+func readi32(src []byte) (int32, []byte, bool) {
+	if len(src) < 4 {
+		return 0, src, false
+	}
+
+	return int32(src[0]) | int32(src[1])<<8 | int32(src[2])<<16 | int32(src[3])<<24, src[4:], true
+}
+
+func readCString(src []byte) (string, []byte, bool) {
+	idx := bytes.IndexByte(src, 0x00)
+	if idx < 0 {
+		return "", src, false
+	}
+	return string(src[:idx]), src[idx+1:], true
 }

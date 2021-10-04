@@ -111,7 +111,7 @@ func TestProxyUnacknowledgedWrites(t *testing.T) {
 	unackCollection, err := setupCollection.Clone(options.Collection().SetWriteConcern(wc))
 	assert.Nil(t, err)
 
-	// Setup by deleteing all documents.
+	// Setup by deleting all documents.
 	_, err = setupCollection.DeleteMany(ctx, bson.D{})
 	assert.Nil(t, err)
 
