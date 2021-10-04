@@ -42,7 +42,7 @@ func isMasterDocument(kind description.TopologyKind) (bsoncore.Document, error) 
 			{Key: "maxWriteBatchSize", Value: 100000},                    // $numberInt
 			{Key: "localTime", Value: bson.D{{Key: "$date", Value: ms}}}, // $numberLong
 			{Key: "logicalSessionTimeoutMinutes", Value: 30},             // $numberInt
-			{Key: "maxWireVersion", Value: 7},                            // $numberInt
+			{Key: "maxWireVersion", Value: 8},                            // $numberInt
 			{Key: "minWireVersion", Value: 0},                            // $numberInt
 			{Key: "readOnly", Value: false},
 			{Key: "ok", Value: 1.0}, // $numberDouble
@@ -57,7 +57,7 @@ func isMasterDocument(kind description.TopologyKind) (bsoncore.Document, error) 
 			{Key: "maxWriteBatchSize", Value: 100000},                    // $numberInt
 			{Key: "localTime", Value: bson.D{{Key: "$date", Value: ms}}}, // $numberLong
 			{Key: "logicalSessionTimeoutMinutes", Value: 30},             // $numberInt
-			{Key: "maxWireVersion", Value: 7},                            // $numberInt
+			{Key: "maxWireVersion", Value: 8},                            // $numberInt
 			{Key: "minWireVersion", Value: 0},                            // $numberInt
 			{Key: "saslSupportedMechs", Value: bson.A{}},                 // empty (proxy doesn't support auth)
 			{Key: "ok", Value: 1.0},                                      // $numberDouble
