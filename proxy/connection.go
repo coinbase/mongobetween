@@ -109,6 +109,11 @@ func (c *connection) handleMessage() (err error) {
 		return
 	}
 
+	tags = append(
+		tags,
+		fmt.Sprintf("response_op_code:%v", res.Op.OpCode()),
+	)
+
 	if _, err = c.conn.Write(res.Wm); err != nil {
 		return
 	}
