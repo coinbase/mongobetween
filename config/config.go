@@ -4,8 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"os"
 	"regexp"
 	"strings"
@@ -13,7 +11,10 @@ import (
 	"github.com/DataDog/datadog-go/statsd"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
+	"github.com/coinbase/mongobetween/mongo"
 	"github.com/coinbase/mongobetween/proxy"
 )
 
@@ -30,6 +31,7 @@ type Config struct {
 	clients []client
 	statsd  string
 	level   zapcore.Level
+	dynamic string
 }
 
 type client struct {
@@ -57,12 +59,30 @@ func (c *Config) Pretty() bool {
 }
 
 func (c *Config) Proxies(log *zap.Logger) (proxies []*proxy.Proxy, err error) {
-	s, err := statsd.New(c.statsd, statsd.WithNamespace("mongobetween"))
+	sd, err := statsd.New(c.statsd, statsd.WithNamespace("mongobetween"))
 	if err != nil {
 		return nil, err
 	}
+
+	d, err := NewDynamic(c.dynamic, log)
+	if err != nil {
+		return nil, err
+	}
+
+	mongos := make(map[string]*mongo.Mongo)
 	for _, client := range c.clients {
-		p, err := proxy.NewProxy(log, s, client.label, c.network, client.address, c.unlink, c.ping, client.opts)
+		m, err := mongo.Connect(log, sd, client.opts, c.ping)
+		if err != nil {
+			return nil, err
+		}
+		mongos[client.address] = m
+	}
+	mongoLookup := func(address string) *mongo.Mongo {
+		return mongos[address]
+	}
+
+	for _, client := range c.clients {
+		p, err := proxy.NewProxy(log, sd, client.label, c.network, client.address, c.unlink, mongoLookup, d)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +107,7 @@ func parseFlags() (*Config, error) {
 	}
 
 	var unlink, ping, pretty bool
-	var network, username, password, stats, loglevel string
+	var network, username, password, stats, loglevel, dynamic string
 	flag.StringVar(&network, "network", "tcp4", "One of: tcp, tcp4, tcp6, unix or unixpacket")
 	flag.StringVar(&username, "username", "", "MongoDB username")
 	flag.StringVar(&password, "password", "", "MongoDB password")
@@ -96,6 +116,7 @@ func parseFlags() (*Config, error) {
 	flag.BoolVar(&ping, "ping", false, "Ping downstream MongoDB before listening")
 	flag.BoolVar(&pretty, "pretty", false, "Pretty print logging")
 	flag.StringVar(&loglevel, "loglevel", "info", "One of: debug, info, warn, error, dpanic, panic, fatal")
+	flag.StringVar(&dynamic, "dynamic", "", "URL to query for dynamic configuration")
 
 	flag.Parse()
 
@@ -104,6 +125,7 @@ func parseFlags() (*Config, error) {
 	password = expandEnv(password)
 	stats = expandEnv(stats)
 	loglevel = expandEnv(loglevel)
+	dynamic = expandEnv(dynamic)
 
 	level := zap.InfoLevel
 	if loglevel != "" {
@@ -126,7 +148,7 @@ func parseFlags() (*Config, error) {
 		for _, v := range all {
 			split := strings.SplitN(v, "=", 2)
 			if len(split) != 2 {
-				return nil, errors.New("malformed address:uri option")
+				return nil, errors.New("malformed address=uri option")
 			}
 			if _, ok := addressMap[split[0]]; ok {
 				return nil, fmt.Errorf("uri already defined for address: %s", split[0])
@@ -136,7 +158,7 @@ func parseFlags() (*Config, error) {
 	}
 
 	if len(addressMap) == 0 {
-		return nil, errors.New("missing address:uri(s)")
+		return nil, errors.New("missing address=uri(s)")
 	}
 
 	var clients []client
@@ -160,6 +182,7 @@ func parseFlags() (*Config, error) {
 		clients: clients,
 		statsd:  stats,
 		level:   level,
+		dynamic: dynamic,
 	}, nil
 }
 

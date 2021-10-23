@@ -10,6 +10,7 @@ import (
 	"github.com/DataDog/datadog-go/statsd"
 	"go.uber.org/zap"
 
+	"github.com/coinbase/mongobetween/config"
 	"github.com/coinbase/mongobetween/mongo"
 )
 
@@ -17,13 +18,16 @@ type connection struct {
 	log    *zap.Logger
 	statsd *statsd.Client
 
-	conn   net.Conn
-	client *mongo.Mongo
-	kill   chan interface{}
-	buffer []byte
+	address string
+	conn    net.Conn
+	kill    chan interface{}
+	buffer  []byte
+
+	mongoLookup MongoLookup
+	dynamic     *config.Dynamic
 }
 
-func handleConnection(log *zap.Logger, sd *statsd.Client, conn net.Conn, client *mongo.Mongo, kill chan interface{}) {
+func handleConnection(log *zap.Logger, sd *statsd.Client, address string, conn net.Conn, mongoLookup MongoLookup, dynamic *config.Dynamic, kill chan interface{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error("Connection crashed", zap.String("panic", fmt.Sprintf("%v", r)), zap.String("stack", string(debug.Stack())))
@@ -33,9 +37,13 @@ func handleConnection(log *zap.Logger, sd *statsd.Client, conn net.Conn, client 
 	c := connection{
 		log:    log,
 		statsd: sd,
-		conn:   conn,
-		client: client,
-		kill:   kill,
+
+		address: address,
+		conn:    conn,
+		kill:    kill,
+
+		mongoLookup: mongoLookup,
+		dynamic:     dynamic,
 	}
 	c.processMessages()
 }
@@ -152,10 +160,28 @@ func (c *connection) readWireMessage() ([]byte, error) {
 }
 
 func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string) (*mongo.Message, error) {
+	dynamic := c.dynamic.ForAddress(c.address)
+	if dynamic.DisableWrites {
+		command, _ := msg.Op.CommandAndCollection()
+		if mongo.IsWrite(command) {
+			return nil, fmt.Errorf("writes are disabled for address: %s", c.address)
+		}
+	}
+
+	redirectTo := dynamic.RedirectTo
+	if redirectTo == "" {
+		redirectTo = c.address
+	}
+	client := c.mongoLookup(redirectTo)
+	if client == nil {
+		return nil, fmt.Errorf("mongo client not found for address: %s", c.address)
+	}
+
 	if isMaster {
 		requestID := msg.Op.RequestID()
 		c.log.Debug("Non-proxied ismaster response", zap.Int32("request_id", requestID))
-		return mongo.IsMasterResponse(requestID, c.client.Description().Kind)
+		return mongo.IsMasterResponse(requestID, client.Description().Kind)
 	}
-	return c.client.RoundTrip(msg, tags)
+
+	return client.RoundTrip(msg, tags)
 }

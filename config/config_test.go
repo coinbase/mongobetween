@@ -134,5 +134,5 @@ func TestMissingAddresses(t *testing.T) {
 
 	resetFlags()
 	_, err := parseFlags()
-	assert.EqualError(t, err, "missing address:uri(s)")
+	assert.EqualError(t, err, "missing address=uri(s)")
 }
