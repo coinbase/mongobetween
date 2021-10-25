@@ -10,7 +10,6 @@ import (
 	"github.com/DataDog/datadog-go/statsd"
 	"go.uber.org/zap"
 
-	"github.com/coinbase/mongobetween/config"
 	"github.com/coinbase/mongobetween/mongo"
 )
 
@@ -24,10 +23,10 @@ type connection struct {
 	buffer  []byte
 
 	mongoLookup MongoLookup
-	dynamic     *config.Dynamic
+	dynamic     *Dynamic
 }
 
-func handleConnection(log *zap.Logger, sd *statsd.Client, address string, conn net.Conn, mongoLookup MongoLookup, dynamic *config.Dynamic, kill chan interface{}) {
+func handleConnection(log *zap.Logger, sd *statsd.Client, address string, conn net.Conn, mongoLookup MongoLookup, dynamic *Dynamic, kill chan interface{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error("Connection crashed", zap.String("panic", fmt.Sprintf("%v", r)), zap.String("stack", string(debug.Stack())))

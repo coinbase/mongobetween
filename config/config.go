@@ -64,7 +64,7 @@ func (c *Config) Proxies(log *zap.Logger) (proxies []*proxy.Proxy, err error) {
 		return nil, err
 	}
 
-	d, err := NewDynamic(c.dynamic, log)
+	d, err := proxy.NewDynamic(c.dynamic, log)
 	if err != nil {
 		return nil, err
 	}

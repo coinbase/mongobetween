@@ -12,7 +12,6 @@ import (
 	"github.com/DataDog/datadog-go/statsd"
 	"go.uber.org/zap"
 
-	"github.com/coinbase/mongobetween/config"
 	"github.com/coinbase/mongobetween/mongo"
 	"github.com/coinbase/mongobetween/util"
 )
@@ -30,13 +29,13 @@ type Proxy struct {
 	unlink  bool
 
 	mongoLookup MongoLookup
-	dynamic     *config.Dynamic
+	dynamic     *Dynamic
 
 	quit chan interface{}
 	kill chan interface{}
 }
 
-func NewProxy(log *zap.Logger, sd *statsd.Client, label, network, address string, unlink bool, mongoLookup MongoLookup, dynamic *config.Dynamic) (*Proxy, error) {
+func NewProxy(log *zap.Logger, sd *statsd.Client, label, network, address string, unlink bool, mongoLookup MongoLookup, dynamic *Dynamic) (*Proxy, error) {
 	if label != "" {
 		log = log.With(zap.String("cluster", label))
 
