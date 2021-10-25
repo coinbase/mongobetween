@@ -75,8 +75,16 @@ func TestRoundTripProcessError(t *testing.T) {
 	sd, err := statsd.New("localhost:8125")
 	assert.Nil(t, err)
 
-	opts := options.Client().ApplyURI(uri)
-	p, err := proxy.NewProxy(zap.L(), sd, "label", "tcp4", ":27019", false, true, opts)
+	upstream, err := mongo.Connect(zap.L(), sd, options.Client().ApplyURI(uri), false)
+	assert.Nil(t, err)
+	lookup := func(address string) *mongo.Mongo {
+		return upstream
+	}
+
+	dynamic, err := proxy.NewDynamic("", zap.L())
+	assert.Nil(t, err)
+
+	p, err := proxy.NewProxy(zap.L(), sd, "label", "tcp4", ":27019", false, lookup, dynamic)
 	assert.Nil(t, err)
 
 	go func() {

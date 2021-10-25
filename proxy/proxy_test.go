@@ -14,6 +14,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"go.uber.org/zap"
+
+	mongob "github.com/coinbase/mongobetween/mongo"
 )
 
 var (
@@ -140,8 +142,16 @@ func setupProxy(t *testing.T) *Proxy {
 	sd, err := statsd.New("localhost:8125")
 	assert.Nil(t, err)
 
-	opts := options.Client().ApplyURI(uri)
-	proxy, err := NewProxy(zap.L(), sd, "label", "tcp4", fmt.Sprintf(":%d", proxyPort), false, true, opts)
+	upstream, err := mongob.Connect(zap.L(), sd, options.Client().ApplyURI(uri), false)
+	assert.Nil(t, err)
+	lookup := func(address string) *mongob.Mongo {
+		return upstream
+	}
+
+	dynamic, err := NewDynamic("", zap.L())
+	assert.Nil(t, err)
+
+	proxy, err := NewProxy(zap.L(), sd, "label", "tcp4", fmt.Sprintf(":%d", proxyPort), false, lookup, dynamic)
 	assert.Nil(t, err)
 	return proxy
 }
