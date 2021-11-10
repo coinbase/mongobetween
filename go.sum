@@ -107,6 +107,8 @@ github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d h1:splanxYIlg+5LfHAM
 github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d/go.mod h1:rHwXgn7JulP+udvsHwJoVG1YGAP6VLg4y9I5dyZdqmA=
 go.mongodb.org/mongo-driver v1.3.5 h1:S0ZOruh4YGHjD7JoN7mIsTrNjnQbOjrmgrx6l6pZN7I=
 go.mongodb.org/mongo-driver v1.3.5/go.mod h1:Ual6Gkco7ZGQw8wE1t4tLnvBsf6yVSM60qW6TgOeJ5c=
+go.mongodb.org/mongo-driver v1.4.0-beta2.0.20211109154939-2806752b6add h1:3yqrXarW9LGADh0tIX4x+tffM+PnE7q3pAXHH8Gmcc8=
+go.mongodb.org/mongo-driver v1.4.0-beta2.0.20211109154939-2806752b6add/go.mod h1:t6OvhUL432VLo8tKAhJDSHhoMRtTHuvtOqJissrKLYo=
 go.mongodb.org/mongo-driver v1.6.2 h1:AsO3bYSrO/TkuvjuU0/IQuwwG30hPhxFu74ak6HPrMQ=
 go.mongodb.org/mongo-driver v1.6.2/go.mod h1:Q4oFMbo1+MSNqICAdYMlC/zSTrwCogR4R8NzkI+yfU8=
 go.mongodb.org/mongo-driver v1.7.2 h1:pFttQyIiJUHEn50YfZgC9ECjITMT44oiN36uArf/OFg=
