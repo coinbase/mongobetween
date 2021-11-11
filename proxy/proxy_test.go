@@ -39,7 +39,7 @@ func TestProxy(t *testing.T) {
 	}()
 
 	client := setupClient(t, "localhost", proxyPort)
-	collection := client.Database("test").Collection("trainers")
+	collection := client.Database("test").Collection("test_proxy")
 	_, err := collection.DeleteMany(ctx, bson.D{{}})
 	assert.Nil(t, err)
 
@@ -109,7 +109,7 @@ func TestProxyUnacknowledgedWrites(t *testing.T) {
 	// Create two *Collection instances: one for setup and basic operations and and one configured with an
 	// unacknowledged write concern for testing.
 	wc := writeconcern.New(writeconcern.W(0))
-	setupCollection := client.Database("test").Collection("trainers")
+	setupCollection := client.Database("test").Collection("test_proxy_unacknowledged_writes")
 	unackCollection, err := setupCollection.Clone(options.Collection().SetWriteConcern(wc))
 	assert.Nil(t, err)
 
@@ -132,6 +132,8 @@ func TestProxyUnacknowledgedWrites(t *testing.T) {
 }
 
 func TestProxyWithDynamicConfig(t *testing.T) {
+	collection := "test_proxy_with_dynamic_config"
+
 	json := fmt.Sprintf(`{
 	  "Clusters": {
 		":%d": {
@@ -197,7 +199,7 @@ func TestProxyWithDynamicConfig(t *testing.T) {
 	}()
 
 	for _, client := range upstreamClients {
-		collection := client.Database("test").Collection("trainers")
+		collection := client.Database("test").Collection(collection)
 		_, err := collection.DeleteMany(ctx, bson.D{{}})
 		assert.Nil(t, err)
 	}
@@ -207,34 +209,34 @@ func TestProxyWithDynamicConfig(t *testing.T) {
 	brock := Trainer{"Brock", 15, "Pewter City"}
 
 	// expect write error
-	_, err = clients[0].Database("test").Collection("trainers").InsertOne(ctx, ash)
+	_, err = clients[0].Database("test").Collection(collection).InsertOne(ctx, ash)
 	assert.Error(t, err, "socket was unexpectedly closed")
 
-	_, err = clients[1].Database("test").Collection("trainers").InsertMany(ctx, []interface{}{misty, brock})
+	_, err = clients[1].Database("test").Collection(collection).InsertMany(ctx, []interface{}{misty, brock})
 	assert.Nil(t, err)
 
-	count, err := clients[0].Database("test").Collection("trainers").CountDocuments(ctx, bson.D{})
+	count, err := clients[0].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
 	assert.Nil(t, err)
 	assert.Equal(t, int64(0), count)
 
-	count, err = clients[1].Database("test").Collection("trainers").CountDocuments(ctx, bson.D{})
+	count, err = clients[1].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
 	assert.Nil(t, err)
 	assert.Equal(t, int64(2), count)
 
-	count, err = clients[2].Database("test").Collection("trainers").CountDocuments(ctx, bson.D{})
+	count, err = clients[2].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
 	assert.Nil(t, err)
 	assert.Equal(t, int64(2), count)
 
 	// check upstreams for expected counts
-	count, err = upstreamClients[0].Database("test").Collection("trainers").CountDocuments(ctx, bson.D{})
+	count, err = upstreamClients[0].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
 	assert.Nil(t, err)
 	assert.Equal(t, int64(0), count)
 
-	count, err = upstreamClients[1].Database("test").Collection("trainers").CountDocuments(ctx, bson.D{})
+	count, err = upstreamClients[1].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
 	assert.Nil(t, err)
 	assert.Equal(t, int64(0), count)
 
-	count, err = upstreamClients[2].Database("test").Collection("trainers").CountDocuments(ctx, bson.D{})
+	count, err = upstreamClients[2].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
 	assert.Nil(t, err)
 	assert.Equal(t, int64(2), count)
 }
