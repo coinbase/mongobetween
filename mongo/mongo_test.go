@@ -45,7 +45,7 @@ func insertOpMsg(t *testing.T) *mongo.Message {
 func TestRoundTrip(t *testing.T) {
 	uri := "mongodb://localhost:27017/test"
 	if os.Getenv("CI") == "true" {
-		uri = "mongodb://mongo:27017/test"
+		uri = "mongodb://mongo1:27017/test"
 	}
 
 	sd, err := statsd.New("localhost:8125")
@@ -69,7 +69,7 @@ func TestRoundTrip(t *testing.T) {
 func TestRoundTripProcessError(t *testing.T) {
 	uri := "mongodb://localhost:27017/test"
 	if os.Getenv("CI") == "true" {
-		uri = "mongodb://mongo:27017/test"
+		uri = "mongodb://mongo1:27017/test"
 	}
 
 	sd, err := statsd.New("localhost:8125")
@@ -84,7 +84,7 @@ func TestRoundTripProcessError(t *testing.T) {
 	dynamic, err := proxy.NewDynamic("", zap.L())
 	assert.Nil(t, err)
 
-	p, err := proxy.NewProxy(zap.L(), sd, "label", "tcp4", ":27019", false, lookup, dynamic)
+	p, err := proxy.NewProxy(zap.L(), sd, "label", "tcp4", ":27023", false, lookup, dynamic)
 	assert.Nil(t, err)
 
 	go func() {
@@ -92,7 +92,7 @@ func TestRoundTripProcessError(t *testing.T) {
 		assert.Nil(t, err)
 	}()
 
-	clientOptions := options.Client().ApplyURI("mongodb://localhost:27019/test")
+	clientOptions := options.Client().ApplyURI("mongodb://localhost:27023/test")
 	m, err := mongo.Connect(zap.L(), sd, clientOptions, false)
 	assert.Nil(t, err)
 
