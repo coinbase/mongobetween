@@ -116,7 +116,7 @@ func parseFlags() (*Config, error) {
 	flag.BoolVar(&ping, "ping", false, "Ping downstream MongoDB before listening")
 	flag.BoolVar(&pretty, "pretty", false, "Pretty print logging")
 	flag.StringVar(&loglevel, "loglevel", "info", "One of: debug, info, warn, error, dpanic, panic, fatal")
-	flag.StringVar(&dynamic, "dynamic", "", "URL to query for dynamic configuration")
+	flag.StringVar(&dynamic, "dynamic", "", "File or URL to query for dynamic configuration")
 
 	flag.Parse()
 
