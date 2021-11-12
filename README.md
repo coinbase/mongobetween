@@ -30,6 +30,8 @@ Usage: mongobetween [OPTIONS] address1=uri1 [address2=uri2] ...
     	Unlink existing unix sockets before listening
   -username string
     	MongoDB username
+  -dynamic string
+    	File or URL to query for dynamic configuration
 ```
 
 TCP socket example:
@@ -50,6 +52,26 @@ mongobetween -network unix \
 ```
 
 The `label` query parameter in the connection URI is used to any tag statsd metrics or logs for that connection.
+
+### Dynamic configuration
+
+Passing a file or URL as the `-dynamic` argument will allow somewhat dynamic configuration of `mongobetween`. Example supported file format:
+```json
+{
+  "Clusters": {
+    ":12345": {
+      "DisableWrites": true,
+      "RedirectTo": ""
+    },
+    "/var/tmp/cluster1.sock": {
+      "DisableWrites": false,
+      "RedirectTo": "/var/tmp/cluster2.sock"
+    }
+  }
+}
+```
+
+This will disable writes to the proxy served from address `:12345`, and redirect any traffic sent to `/var/tmp/cluster1.sock` to the proxy running on `/var/tmp/cluster2.sock`. This is useful for minimal-downtime migrations between clusters.
 
 ### TODO
 

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
 
 	"github.com/coinbase/mongobetween/mongo"
@@ -19,6 +18,8 @@ import (
 
 const restartSleep = 1 * time.Second
 
+type MongoLookup func(address string) *mongo.Mongo
+
 type Proxy struct {
 	log    *zap.Logger
 	statsd *statsd.Client
@@ -26,14 +27,15 @@ type Proxy struct {
 	network string
 	address string
 	unlink  bool
-	ping    bool
-	opts    *options.ClientOptions
+
+	mongoLookup MongoLookup
+	dynamic     *Dynamic
 
 	quit chan interface{}
 	kill chan interface{}
 }
 
-func NewProxy(log *zap.Logger, sd *statsd.Client, label, network, address string, unlink, ping bool, opts *options.ClientOptions) (*Proxy, error) {
+func NewProxy(log *zap.Logger, sd *statsd.Client, label, network, address string, unlink bool, mongoLookup MongoLookup, dynamic *Dynamic) (*Proxy, error) {
 	if label != "" {
 		log = log.With(zap.String("cluster", label))
 
@@ -50,8 +52,9 @@ func NewProxy(log *zap.Logger, sd *statsd.Client, label, network, address string
 		network: network,
 		address: address,
 		unlink:  unlink,
-		ping:    ping,
-		opts:    opts,
+
+		mongoLookup: mongoLookup,
+		dynamic:     dynamic,
 
 		quit: make(chan interface{}),
 		kill: make(chan interface{}),
@@ -95,16 +98,10 @@ func (p *Proxy) run() error {
 		}
 	}()
 
-	m, err := mongo.Connect(p.log, p.statsd, p.opts, p.ping)
-	if err != nil {
-		return err
-	}
-	defer m.Close()
-
-	return p.listen(m)
+	return p.listen()
 }
 
-func (p *Proxy) listen(m *mongo.Mongo) error {
+func (p *Proxy) listen() error {
 	if strings.Contains(p.network, "unix") {
 		oldUmask := syscall.Umask(0)
 		defer syscall.Umask(oldUmask)
@@ -128,11 +125,11 @@ func (p *Proxy) listen(m *mongo.Mongo) error {
 		}
 	}()
 
-	p.accept(l, m)
+	p.accept(l)
 	return nil
 }
 
-func (p *Proxy) accept(l net.Listener, m *mongo.Mongo) {
+func (p *Proxy) accept(l net.Listener) {
 	var wg sync.WaitGroup
 	defer func() {
 		p.log.Info("Waiting for open connections")
@@ -165,7 +162,7 @@ func (p *Proxy) accept(l net.Listener, m *mongo.Mongo) {
 		opened("connection_opened", []string{})
 		go func() {
 			log.Info("Accept")
-			handleConnection(log, p.statsd, c, m, p.kill)
+			handleConnection(log, p.statsd, p.address, c, p.mongoLookup, p.dynamic, p.kill)
 
 			_ = c.Close()
 			log.Info("Close")
