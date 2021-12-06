@@ -73,7 +73,17 @@ func CommandAndCollection(msg bsoncore.Document) (Command, string) {
 }
 
 func IsIsMasterDoc(doc bsoncore.Document) bool {
-	isMaster, _ := doc.Lookup(string(IsMaster)).Int32OK()
-	ismaster, _ := doc.Lookup(string(Ismaster)).Int32OK()
-	return ismaster+isMaster > 0
+	isMaster := doc.Lookup(string(IsMaster))
+	ismaster := doc.Lookup(string(Ismaster))
+	return IsIsMasterValueTruthy(isMaster) || IsIsMasterValueTruthy(ismaster)
+}
+
+func IsIsMasterValueTruthy(val bsoncore.Value) bool {
+	if intValue, isInt := val.Int32OK(); intValue > 0 {
+		return true;
+	} else if !isInt {
+		boolValue, isBool := val.BooleanOK()
+		return boolValue && isBool
+	}
+	return false;
 }
