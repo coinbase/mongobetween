@@ -1,6 +1,7 @@
 package mongo
 
 import (
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
@@ -28,18 +29,23 @@ func (c *cursorCache) count() int {
 	return c.c.Len()
 }
 
-func (c *cursorCache) peek(cursorID int64) (server driver.Server, ok bool) {
-	v, ok := c.c.Peek(cursorID)
+func (c *cursorCache) peek(cursorID int64, collection string) (server driver.Server, ok bool) {
+
+	v, ok := c.c.Peek(buildKey(cursorID, collection))
 	if !ok {
 		return
 	}
 	return v.(driver.Server), true
 }
 
-func (c *cursorCache) add(cursorID int64, server driver.Server) {
-	c.c.Add(cursorID, server)
+func (c *cursorCache) add(cursorID int64, collection string, server driver.Server) {
+	c.c.Add(buildKey(cursorID, collection), server)
 }
 
-func (c *cursorCache) remove(cursorID int64) {
-	c.c.Remove(cursorID)
+func (c *cursorCache) remove(cursorID int64, collection string) {
+	c.c.Remove(buildKey(cursorID, collection))
+}
+
+func buildKey(cursorID int64, collection string) string {
+	return fmt.Sprintf("%d-%s", cursorID, collection)
 }

@@ -177,9 +177,10 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		return nil, errors.New("connection closed")
 	}
 
-	// FIXME this assumes that cursorIDs are unique on the cluster, but two servers can have the same cursorID reference different cursors
+	// CursorID is pinned to a server by CursorID-collection name key
 	requestCursorID, _ := msg.Op.CursorID()
-	server, err := m.selectServer(requestCursorID)
+	_, collection := msg.Op.CommandAndCollection()
+	server, err := m.selectServer(requestCursorID, collection)
 	if err != nil {
 		return nil, err
 	}
@@ -234,9 +235,9 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 
 	if responseCursorID, ok := op.CursorID(); ok {
 		if responseCursorID != 0 {
-			m.cursors.add(responseCursorID, server)
+			m.cursors.add(responseCursorID, collection, server)
 		} else if requestCursorID != 0 {
-			m.cursors.remove(requestCursorID)
+			m.cursors.remove(requestCursorID, collection)
 		}
 	}
 
@@ -246,13 +247,14 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	}, nil
 }
 
-func (m *Mongo) selectServer(requestCursorID int64) (server driver.Server, err error) {
+func (m *Mongo) selectServer(requestCursorID int64, collection string) (server driver.Server, err error) {
 	defer func(start time.Time) {
 		_ = m.statsd.Timing("server_selection", time.Since(start), []string{fmt.Sprintf("success:%v", err == nil)}, 1)
 	}(time.Now())
 
 	if requestCursorID != 0 {
-		server, ok := m.cursors.peek(requestCursorID)
+		m.log.Info("Cached cursorID has been found", zap.Int64("cursor", requestCursorID), zap.String("collection", collection))
+		server, ok := m.cursors.peek(requestCursorID, collection)
 		if ok {
 			return server, nil
 		}
