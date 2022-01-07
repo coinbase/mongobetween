@@ -89,7 +89,7 @@ func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, pi
 		roundTripCtx:    rtCtx,
 		roundTripCancel: rtCancel,
 	}
-	go m.cursorMonitor()
+	go m.cacheMonitor()
 
 	return &m, nil
 }
@@ -126,9 +126,14 @@ func (m *Mongo) Description() description.Topology {
 	return m.topology.Description()
 }
 
-func (m *Mongo) cursorMonitor() {
+func (m *Mongo) cacheGauge(name string, count float64) {
+	_ = m.statsd.Gauge(name, count, []string{}, 1)
+}
+
+func (m *Mongo) cacheMonitor() {
 	for {
-		_ = m.statsd.Gauge("cursors", float64(m.cursors.count()), []string{}, 1)
+		m.cacheGauge("cursors", float64(m.cursors.count()))
+		m.cacheGauge("transactions", float64(m.cursors.count()))
 		time.Sleep(1 * time.Second)
 	}
 }
