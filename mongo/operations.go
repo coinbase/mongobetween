@@ -16,6 +16,12 @@ type Message struct {
 	Op Operation
 }
 
+type TransactionDetails struct {
+	LsId               []byte
+	TxnNumber          int64
+	IsStartTransaction bool
+}
+
 type Operation interface {
 	fmt.Stringer
 	OpCode() wiremessage.OpCode
@@ -26,6 +32,7 @@ type Operation interface {
 	Error() error
 	Unacknowledged() bool
 	CommandAndCollection() (Command, string)
+	TransactionDetails() (*TransactionDetails, bool)
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1361-L1426
@@ -74,6 +81,10 @@ type opUnknown struct {
 	wm     []byte
 }
 
+func (o *opUnknown) TransactionDetails() (*TransactionDetails, bool) {
+	return nil, false
+}
+
 func (o *opUnknown) OpCode() wiremessage.OpCode {
 	return o.opCode
 }
@@ -119,6 +130,10 @@ type opQuery struct {
 	numberToReturn       int32
 	query                bsoncore.Document
 	returnFieldsSelector bsoncore.Document
+}
+
+func (q *opQuery) TransactionDetails() (*TransactionDetails, bool) {
+	return nil, false
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/topology/server_test.go#L968-L1003
@@ -425,6 +440,42 @@ func (m *opMsg) CommandAndCollection() (Command, string) {
 	return Unknown, ""
 }
 
+// TransactionDetails See https://github.com/mongodb/specifications/blob/master/source/transactions/transactions.rst
+// Version 4.0 of the server introduces multi-statement transactions.
+// opMsg is available from wire protocol 3.6
+// deprecated operations such OP_UPDATE OP_INSERT are not supposed to support transaction statements.
+// When constructing any other command within a transaction, drivers MUST add the lsid, txnNumber, and autocommit fields.
+func (m *opMsg) TransactionDetails() (*TransactionDetails, bool) {
+
+	for _, section := range m.sections {
+		if single, ok := section.(*opMsgSectionSingle); ok {
+			var ok bool
+			_, lsid, ok := single.msg.Lookup("lsid", "id").BinaryOK()
+			if !ok {
+				continue
+			}
+			txnNumber, ok := single.msg.Lookup("txnNumber").Int64OK()
+			if !ok {
+				continue
+			}
+			_, ok = single.msg.Lookup("autocommit").BooleanOK()
+			if !ok {
+				continue
+			}
+
+			startTransaction, ok := single.msg.Lookup("startTransaction").BooleanOK()
+
+			return &TransactionDetails{
+				LsId:               lsid,
+				TxnNumber:          txnNumber,
+				IsStartTransaction: ok && startTransaction,
+			}, true
+		}
+	}
+
+	return nil, false
+}
+
 func (m *opMsg) String() string {
 	var sections []string
 	for _, section := range m.sections {
@@ -441,6 +492,10 @@ type opReply struct {
 	startingFrom int32
 	numReturned  int32
 	documents    []bsoncore.Document
+}
+
+func (r *opReply) TransactionDetails() (*TransactionDetails, bool) {
+	return nil, false
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1297-L1358
@@ -540,6 +595,10 @@ type opGetMore struct {
 	cursorID           int64
 }
 
+func (g *opGetMore) TransactionDetails() (*TransactionDetails, bool) {
+	return nil, false
+}
+
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1297-L1358
 func decodeGetMore(reqID int32, wm []byte) (*opGetMore, error) {
 	var ok bool
@@ -625,6 +684,10 @@ type opUpdate struct {
 	update             bsoncore.Document
 }
 
+func (u *opUpdate) TransactionDetails() (*TransactionDetails, bool) {
+	return nil, false
+}
+
 func decodeUpdate(reqID int32, wm []byte) (*opUpdate, error) {
 	var ok bool
 	u := opUpdate{
@@ -703,6 +766,10 @@ type opInsert struct {
 	flags              int32
 	fullCollectionName string
 	documents          []bsoncore.Document
+}
+
+func (i *opInsert) TransactionDetails() (*TransactionDetails, bool) {
+	return nil, false
 }
 
 func decodeInsert(reqID int32, wm []byte) (*opInsert, error) {
@@ -785,6 +852,10 @@ type opDelete struct {
 	selector           bsoncore.Document
 }
 
+func (d *opDelete) TransactionDetails() (*TransactionDetails, bool) {
+	return nil, false
+}
+
 func decodeDelete(reqID int32, wm []byte) (*opDelete, error) {
 	var ok bool
 	d := opDelete{
@@ -860,6 +931,10 @@ func (d *opDelete) String() string {
 type opKillCursors struct {
 	reqID     int32
 	cursorIDs []int64
+}
+
+func (k *opKillCursors) TransactionDetails() (*TransactionDetails, bool) {
+	return nil, false
 }
 
 func decodeKillCursors(reqID int32, wm []byte) (*opKillCursors, error) {

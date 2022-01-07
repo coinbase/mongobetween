@@ -13,7 +13,7 @@ import (
 const maxCursors = 1024 * 1024
 
 // one day expiry
-const expiry = 24 * time.Hour
+const cursorExpiry = 24 * time.Hour
 
 type cursorCache struct {
 	c *lruttl.Cache
@@ -21,7 +21,7 @@ type cursorCache struct {
 
 func newCursorCache() *cursorCache {
 	return &cursorCache{
-		c: lruttl.New(maxCursors, expiry),
+		c: lruttl.New(maxCursors, cursorExpiry),
 	}
 }
 

@@ -34,10 +34,11 @@ type Mongo struct {
 	statsd *statsd.Client
 	opts   *options.ClientOptions
 
-	mu       sync.RWMutex
-	client   *mongo.Client
-	topology *topology.Topology
-	cursors  *cursorCache
+	mu           sync.RWMutex
+	client       *mongo.Client
+	topology     *topology.Topology
+	cursors      *cursorCache
+	transactions *transactionCache
 
 	roundTripCtx    context.Context
 	roundTripCancel func()
@@ -84,6 +85,7 @@ func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, pi
 		client:          c,
 		topology:        t,
 		cursors:         newCursorCache(),
+		transactions:    newTransactionCache(),
 		roundTripCtx:    rtCtx,
 		roundTripCancel: rtCancel,
 	}
@@ -178,14 +180,14 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	}
 
 	// CursorID is pinned to a server by CursorID-collection name key
+	// Transaction is pinned to a server by the issued lsid
 	requestCursorID, _ := msg.Op.CursorID()
-	_, collection := msg.Op.CommandAndCollection()
-	server, err := m.selectServer(requestCursorID, collection)
+	requestCommand, collection := msg.Op.CommandAndCollection()
+	transactionDetails, _ := msg.Op.TransactionDetails()
+	server, err := m.selectServer(requestCursorID, collection, transactionDetails)
 	if err != nil {
 		return nil, err
 	}
-
-	// FIXME transactions should be pinned to servers, similar to cursors above
 
 	conn, err := m.checkoutConnection(server)
 	if err != nil {
@@ -241,25 +243,46 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		}
 	}
 
+	if transactionDetails != nil {
+		if transactionDetails.IsStartTransaction {
+			m.transactions.add(transactionDetails.LsId, server)
+		} else {
+			if requestCommand == AbortTransaction || requestCommand == CommitTransaction {
+				m.log.Info("Removing transaction from the cache", zap.String("reqCommand", string(requestCommand)))
+				m.transactions.remove(transactionDetails.LsId)
+			}
+		}
+	}
+
 	return &Message{
 		Wm: wm,
 		Op: op,
 	}, nil
 }
 
-func (m *Mongo) selectServer(requestCursorID int64, collection string) (server driver.Server, err error) {
+func (m *Mongo) selectServer(requestCursorID int64, collection string, transDetails *TransactionDetails) (server driver.Server, err error) {
 	defer func(start time.Time) {
 		_ = m.statsd.Timing("server_selection", time.Since(start), []string{fmt.Sprintf("success:%v", err == nil)}, 1)
 	}(time.Now())
 
-	if requestCursorID != 0 {
-		m.log.Info("Cached cursorID has been found", zap.Int64("cursor", requestCursorID), zap.String("collection", collection))
-		server, ok := m.cursors.peek(requestCursorID, collection)
-		if ok {
+	// Check for a pinned server based on current transaction lsid first
+	if transDetails != nil {
+		if server, ok := m.transactions.peek(transDetails.LsId); ok {
+			m.log.Info("found cached transaction", zap.String("lsid", fmt.Sprintf("%+v", transDetails)))
 			return server, nil
 		}
 	}
 
+	// Search for pinned cursor then
+	if requestCursorID != 0 {
+		server, ok := m.cursors.peek(requestCursorID, collection)
+		if ok {
+			m.log.Info("Cached cursorID has been found", zap.Int64("cursor", requestCursorID), zap.String("collection", collection))
+			return server, nil
+		}
+	}
+
+	// Select a server
 	selector := description.CompositeSelector([]description.ServerSelector{
 		description.ReadPrefSelector(readpref.Primary()),   // ignored by sharded clusters
 		description.LatencySelector(15 * time.Millisecond), // default localThreshold for the client
