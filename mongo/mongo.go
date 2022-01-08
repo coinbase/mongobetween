@@ -133,7 +133,7 @@ func (m *Mongo) cacheGauge(name string, count float64) {
 func (m *Mongo) cacheMonitor() {
 	for {
 		m.cacheGauge("cursors", float64(m.cursors.count()))
-		m.cacheGauge("transactions", float64(m.cursors.count()))
+		m.cacheGauge("transactions", float64(m.transactions.count()))
 		time.Sleep(1 * time.Second)
 	}
 }
