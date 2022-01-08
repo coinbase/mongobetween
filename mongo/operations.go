@@ -448,25 +448,26 @@ func (m *opMsg) CommandAndCollection() (Command, string) {
 func (m *opMsg) TransactionDetails() (*TransactionDetails, bool) {
 
 	for _, section := range m.sections {
+
 		if single, ok := section.(*opMsgSectionSingle); ok {
-			var ok bool
-			_, lsid, ok := single.msg.Lookup("lsid", "id").BinaryOK()
+			_, lsId, ok := single.msg.Lookup("lsid", "id").BinaryOK()
 			if !ok {
 				continue
 			}
+
 			txnNumber, ok := single.msg.Lookup("txnNumber").Int64OK()
 			if !ok {
 				continue
 			}
+
 			_, ok = single.msg.Lookup("autocommit").BooleanOK()
 			if !ok {
 				continue
 			}
 
 			startTransaction, ok := single.msg.Lookup("startTransaction").BooleanOK()
-
 			return &TransactionDetails{
-				LsId:               lsid,
+				LsId:               lsId,
 				TxnNumber:          txnNumber,
 				IsStartTransaction: ok && startTransaction,
 			}, true
