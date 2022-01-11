@@ -127,6 +127,31 @@ func TestOpMsgCursorID(t *testing.T) {
 	assert.Equal(t, int64(103), cursorID)
 }
 
+func TestOpMessageTransactionDetails(t *testing.T) {
+	doc1, err := bson.Marshal(
+		bson.D{
+			{Key: "lsid", Value: bson.D{{Key: "id", Value: []byte{0x1}}}},
+			{Key: "txnNumber", Value: int64(1)},
+			{Key: "autocommit", Value: true},
+		})
+	assert.NoError(t, err)
+	op := opMsg{
+		flags: wiremessage.MoreToCome,
+		sections: []opMsgSection{
+			&opMsgSectionSingle{doc1},
+		},
+	}
+	wm := op.Encode(0)
+
+	dec, err := Decode(wm)
+	assert.Nil(t, err)
+
+	details := dec.TransactionDetails()
+	assert.NotNil(t, details)
+	assert.False(t, details.IsStartTransaction)
+	assert.Equal(t, int64(1), details.TxnNumber)
+}
+
 func TestOpMsgNoError(t *testing.T) {
 	doc1, err := bson.Marshal(bson.D{{Key: "getMore", Value: int64(102)}, {Key: "ok", Value: int32(1)}})
 	assert.Nil(t, err)

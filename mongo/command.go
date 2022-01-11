@@ -60,6 +60,9 @@ func CommandAndCollection(msg bsoncore.Document) (Command, string) {
 	for _, s := range int64Commands {
 		value := msg.Lookup(string(s))
 		if value.Data != nil {
+			if coll, ok := msg.Lookup("collection").StringValueOK(); ok {
+				return s, coll
+			}
 			return s, ""
 		}
 	}

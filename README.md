@@ -76,8 +76,9 @@ This will disable writes to the proxy served from address `:12345`, and redirect
 ### TODO
 
 Current known missing features:
- - [ ] Transaction server pinning
- - [ ] Different cursors on separate servers with the same cursor ID value
+ - [X] Transaction server pinning
+ - [X] Different cursors on separate servers with the same cursor ID value
+
 
 ### Statsd
 `mongobetween` supports reporting health metrics to a local statsd sidecar, using the [Datadog Go library](github.com/DataDog/datadog-go). By default it reports to `localhost:8125`. The following metrics are reported:
@@ -89,6 +90,7 @@ Current known missing features:
  - `mongobetween.connection_opened` (Counter) - connection opened with the application
  - `mongobetween.connection_closed` (Counter) - connection closed with the application
  - `mongobetween.cursors` (Gauge) - number of open cursors being tracked (for cursor -> server mapping)
+ - `mongobetween.transactions` (Gauge) - number of transactions being tracked (for client sessions -> server mapping)****
  - `mongobetween.server_selection` (Timing) - Go driver server selection timing
  - `mongobetween.checkout_connection` (Timing) - Go driver connection checkout timing
  - `mongobetween.pool.checked_out_connections` (Gauge) - number of connections checked out from the Go driver connection pool
