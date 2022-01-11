@@ -145,8 +145,8 @@ func TestOpMessageTransactionDetails(t *testing.T) {
 	dec, err := Decode(wm)
 	assert.Nil(t, err)
 
-	details, ok := dec.TransactionDetails()
-	assert.True(t, ok)
+	details := dec.TransactionDetails()
+	assert.NotNil(t, details)
 	assert.False(t, details.IsStartTransaction)
 	assert.Equal(t, int64(1), details.TxnNumber)
 }

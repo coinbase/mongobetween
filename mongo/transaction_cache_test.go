@@ -5,10 +5,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"testing"
+	"time"
 )
 
 type transactionMockServer struct {
 	i int
+}
+
+func (m *transactionMockServer) MinRTT() time.Duration {
+	return time.Duration(0)
 }
 
 func (m *transactionMockServer) Connection(context.Context) (driver.Connection, error) {

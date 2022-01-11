@@ -32,7 +32,7 @@ type Operation interface {
 	Error() error
 	Unacknowledged() bool
 	CommandAndCollection() (Command, string)
-	TransactionDetails() (*TransactionDetails, bool)
+	TransactionDetails() *TransactionDetails
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1361-L1426
@@ -81,8 +81,8 @@ type opUnknown struct {
 	wm     []byte
 }
 
-func (o *opUnknown) TransactionDetails() (*TransactionDetails, bool) {
-	return nil, false
+func (o *opUnknown) TransactionDetails() *TransactionDetails {
+	return nil
 }
 
 func (o *opUnknown) OpCode() wiremessage.OpCode {
@@ -132,8 +132,8 @@ type opQuery struct {
 	returnFieldsSelector bsoncore.Document
 }
 
-func (q *opQuery) TransactionDetails() (*TransactionDetails, bool) {
-	return nil, false
+func (q *opQuery) TransactionDetails() *TransactionDetails {
+	return nil
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/topology/server_test.go#L968-L1003
@@ -445,7 +445,7 @@ func (m *opMsg) CommandAndCollection() (Command, string) {
 // opMsg is available from wire protocol 3.6
 // deprecated operations such OP_UPDATE OP_INSERT are not supposed to support transaction statements.
 // When constructing any other command within a transaction, drivers MUST add the lsid, txnNumber, and autocommit fields.
-func (m *opMsg) TransactionDetails() (*TransactionDetails, bool) {
+func (m *opMsg) TransactionDetails() *TransactionDetails {
 
 	for _, section := range m.sections {
 
@@ -470,11 +470,11 @@ func (m *opMsg) TransactionDetails() (*TransactionDetails, bool) {
 				LsId:               lsId,
 				TxnNumber:          txnNumber,
 				IsStartTransaction: ok && startTransaction,
-			}, true
+			}
 		}
 	}
 
-	return nil, false
+	return nil
 }
 
 func (m *opMsg) String() string {
@@ -495,8 +495,8 @@ type opReply struct {
 	documents    []bsoncore.Document
 }
 
-func (r *opReply) TransactionDetails() (*TransactionDetails, bool) {
-	return nil, false
+func (r *opReply) TransactionDetails() *TransactionDetails {
+	return nil
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1297-L1358
@@ -596,8 +596,8 @@ type opGetMore struct {
 	cursorID           int64
 }
 
-func (g *opGetMore) TransactionDetails() (*TransactionDetails, bool) {
-	return nil, false
+func (g *opGetMore) TransactionDetails() *TransactionDetails {
+	return nil
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1297-L1358
@@ -685,8 +685,8 @@ type opUpdate struct {
 	update             bsoncore.Document
 }
 
-func (u *opUpdate) TransactionDetails() (*TransactionDetails, bool) {
-	return nil, false
+func (u *opUpdate) TransactionDetails() *TransactionDetails {
+	return nil
 }
 
 func decodeUpdate(reqID int32, wm []byte) (*opUpdate, error) {
@@ -769,8 +769,8 @@ type opInsert struct {
 	documents          []bsoncore.Document
 }
 
-func (i *opInsert) TransactionDetails() (*TransactionDetails, bool) {
-	return nil, false
+func (i *opInsert) TransactionDetails() *TransactionDetails {
+	return nil
 }
 
 func decodeInsert(reqID int32, wm []byte) (*opInsert, error) {
@@ -853,8 +853,8 @@ type opDelete struct {
 	selector           bsoncore.Document
 }
 
-func (d *opDelete) TransactionDetails() (*TransactionDetails, bool) {
-	return nil, false
+func (d *opDelete) TransactionDetails() *TransactionDetails {
+	return nil
 }
 
 func decodeDelete(reqID int32, wm []byte) (*opDelete, error) {
@@ -934,8 +934,8 @@ type opKillCursors struct {
 	cursorIDs []int64
 }
 
-func (k *opKillCursors) TransactionDetails() (*TransactionDetails, bool) {
-	return nil, false
+func (k *opKillCursors) TransactionDetails() *TransactionDetails {
+	return nil
 }
 
 func decodeKillCursors(reqID int32, wm []byte) (*opKillCursors, error) {

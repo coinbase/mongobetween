@@ -188,7 +188,7 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	// Transaction is pinned to a server by the issued lsid
 	requestCursorID, _ := msg.Op.CursorID()
 	requestCommand, collection := msg.Op.CommandAndCollection()
-	transactionDetails, _ := msg.Op.TransactionDetails()
+	transactionDetails := msg.Op.TransactionDetails()
 	server, err := m.selectServer(requestCursorID, collection, transactionDetails)
 	if err != nil {
 		return nil, err
