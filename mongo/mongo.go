@@ -253,7 +253,7 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 			m.transactions.add(transactionDetails.LsId, server)
 		} else {
 			if requestCommand == AbortTransaction || requestCommand == CommitTransaction {
-				m.log.Info("Removing transaction from the cache", zap.String("reqCommand", string(requestCommand)))
+				m.log.Debug("Removing transaction from the cache", zap.String("reqCommand", string(requestCommand)))
 				m.transactions.remove(transactionDetails.LsId)
 			}
 		}
@@ -273,7 +273,7 @@ func (m *Mongo) selectServer(requestCursorID int64, collection string, transDeta
 	// Check for a pinned server based on current transaction lsid first
 	if transDetails != nil {
 		if server, ok := m.transactions.peek(transDetails.LsId); ok {
-			m.log.Info("found cached transaction", zap.String("lsid", fmt.Sprintf("%+v", transDetails)))
+			m.log.Debug("found cached transaction", zap.String("lsid", fmt.Sprintf("%+v", transDetails)))
 			return server, nil
 		}
 	}
@@ -282,7 +282,7 @@ func (m *Mongo) selectServer(requestCursorID int64, collection string, transDeta
 	if requestCursorID != 0 {
 		server, ok := m.cursors.peek(requestCursorID, collection)
 		if ok {
-			m.log.Info("Cached cursorID has been found", zap.Int64("cursor", requestCursorID), zap.String("collection", collection))
+			m.log.Debug("Cached cursorID has been found", zap.Int64("cursor", requestCursorID), zap.String("collection", collection))
 			return server, nil
 		}
 	}
