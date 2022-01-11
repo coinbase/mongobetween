@@ -134,6 +134,7 @@ func TestOpMessageTransactionDetails(t *testing.T) {
 			{Key: "txnNumber", Value: int64(1)},
 			{Key: "autocommit", Value: true},
 		})
+	assert.NoError(t, err)
 	op := opMsg{
 		flags: wiremessage.MoreToCome,
 		sections: []opMsgSection{

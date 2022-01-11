@@ -250,11 +250,11 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 
 	if transactionDetails != nil {
 		if transactionDetails.IsStartTransaction {
-			m.transactions.add(transactionDetails.LsId, server)
+			m.transactions.add(transactionDetails.LsID, server)
 		} else {
 			if requestCommand == AbortTransaction || requestCommand == CommitTransaction {
 				m.log.Debug("Removing transaction from the cache", zap.String("reqCommand", string(requestCommand)))
-				m.transactions.remove(transactionDetails.LsId)
+				m.transactions.remove(transactionDetails.LsID)
 			}
 		}
 	}
@@ -272,7 +272,7 @@ func (m *Mongo) selectServer(requestCursorID int64, collection string, transDeta
 
 	// Check for a pinned server based on current transaction lsid first
 	if transDetails != nil {
-		if server, ok := m.transactions.peek(transDetails.LsId); ok {
+		if server, ok := m.transactions.peek(transDetails.LsID); ok {
 			m.log.Debug("found cached transaction", zap.String("lsid", fmt.Sprintf("%+v", transDetails)))
 			return server, nil
 		}

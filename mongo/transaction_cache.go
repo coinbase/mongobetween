@@ -25,18 +25,18 @@ func (t *transactionCache) count() int {
 	return t.c.Len()
 }
 
-func (t *transactionCache) peek(lsId []byte) (server driver.Server, ok bool) {
-	v, ok := t.c.Peek(b64.StdEncoding.EncodeToString(lsId))
+func (t *transactionCache) peek(lsID []byte) (server driver.Server, ok bool) {
+	v, ok := t.c.Peek(b64.StdEncoding.EncodeToString(lsID))
 	if !ok {
 		return
 	}
 	return v.(driver.Server), true
 }
 
-func (t *transactionCache) add(lsId []byte, server driver.Server) {
-	t.c.Add(b64.StdEncoding.EncodeToString(lsId), server)
+func (t *transactionCache) add(lsID []byte, server driver.Server) {
+	t.c.Add(b64.StdEncoding.EncodeToString(lsID), server)
 }
 
-func (t *transactionCache) remove(lsId []byte) {
-	t.c.Remove(b64.StdEncoding.EncodeToString(lsId))
+func (t *transactionCache) remove(lsID []byte) {
+	t.c.Remove(b64.StdEncoding.EncodeToString(lsID))
 }

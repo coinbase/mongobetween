@@ -17,7 +17,7 @@ type Message struct {
 }
 
 type TransactionDetails struct {
-	LsId               []byte
+	LsID               []byte
 	TxnNumber          int64
 	IsStartTransaction bool
 }
@@ -450,7 +450,7 @@ func (m *opMsg) TransactionDetails() *TransactionDetails {
 	for _, section := range m.sections {
 
 		if single, ok := section.(*opMsgSectionSingle); ok {
-			_, lsId, ok := single.msg.Lookup("lsid", "id").BinaryOK()
+			_, lsID, ok := single.msg.Lookup("lsid", "id").BinaryOK()
 			if !ok {
 				continue
 			}
@@ -467,7 +467,7 @@ func (m *opMsg) TransactionDetails() *TransactionDetails {
 
 			startTransaction, ok := single.msg.Lookup("startTransaction").BooleanOK()
 			return &TransactionDetails{
-				LsId:               lsId,
+				LsID:               lsID,
 				TxnNumber:          txnNumber,
 				IsStartTransaction: ok && startTransaction,
 			}
