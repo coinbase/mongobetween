@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"runtime/debug"
 	"time"
@@ -182,5 +184,57 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 		return mongo.IsMasterResponse(requestID, client.Description().Kind)
 	}
 
-	return client.RoundTrip(msg, tags)
+	wmCopy := make([]byte, len(msg.Wm))
+	copy(wmCopy, msg.Wm)
+
+	copyOp, err := mongo.Decode(wmCopy)
+	if err != nil {
+		// TODO: handle error
+		c.log.Fatal("Whoops ", zap.Error(err))
+	}
+	msgCopy := &mongo.Message{
+		Wm: wmCopy,
+		Op: copyOp,
+	}
+	// TODO: Avoid duplicate reads
+	primaryMessage, err := client.RoundTrip(msg, tags)
+	if err != nil {
+		return primaryMessage, err
+	}
+
+	command, str := msgCopy.Op.CommandAndCollection()
+	if dynamic.DualReadFrom != "" {
+		dualReadClient := c.mongoLookup(dynamic.DualReadFrom)
+		c.log.Info("Checking for read ", zap.Bool("is_read", mongo.IsRead(command)), zap.String("command", string(command)), zap.String("string result", str))
+		if mongo.IsRead(command) {
+			// TODO: Is this too much entropy/random?
+			if rand.Intn(100) < dynamic.DualReadSamplePercent {
+				dualReadMessage, err := dualReadClient.RoundTrip(msgCopy, tags)
+				if err != nil {
+					c.log.Error("Error dual reading: ", zap.Error(err))
+				}
+
+				primaryParsed, err := mongo.Decode(primaryMessage.Wm)
+				if err != nil {
+					c.log.Fatal("Error parsing message", zap.Error(err))
+				}
+
+				dualParsed, err := mongo.Decode(dualReadMessage.Wm)
+				// fmt.Printf("raw primary message:\n%+v\n\n", primaryMessage.Wm)
+				// fmt.Printf("raw dual message:\n%+v\n\n", dualReadMessage.Wm)
+				// fmt.Printf("parsed primary message:\n%+v\n\n", primaryParsed)
+				// fmt.Printf("parsed dual message:\n%+v\n\n", dualParsed)
+
+				// TODO: Can we avoid parsing and re-encoding??
+				if !bytes.Equal(primaryParsed.Encode(primaryParsed.RequestID()), dualParsed.Encode(primaryParsed.RequestID())) {
+					// Log out query???
+					c.log.Info("Dual reads mismatch", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
+				} else {
+					c.log.Info("Dual reads match", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
+				}
+			}
+		}
+	}
+
+	return primaryMessage, nil
 }

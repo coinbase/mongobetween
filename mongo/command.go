@@ -45,6 +45,15 @@ func IsWrite(command Command) bool {
 	return false
 }
 
+// This feels super weak?
+func IsRead(command Command) bool {
+	switch command {
+	case Aggregate, Count, Find, GetMore, ListCollections, ListIndexes:
+		return true
+	}
+	return false
+}
+
 func CommandAndCollection(msg bsoncore.Document) (Command, string) {
 	for _, s := range collectionCommands {
 		if coll, ok := msg.Lookup(string(s)).StringValueOK(); ok {
@@ -83,10 +92,10 @@ func IsIsMasterDoc(doc bsoncore.Document) bool {
 
 func IsIsMasterValueTruthy(val bsoncore.Value) bool {
 	if intValue, isInt := val.Int32OK(); intValue > 0 {
-		return true;
+		return true
 	} else if !isInt {
 		boolValue, isBool := val.BooleanOK()
 		return boolValue && isBool
 	}
-	return false;
+	return false
 }
