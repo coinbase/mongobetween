@@ -108,6 +108,11 @@ func (c *connection) handleMessage() (err error) {
 		Wm: wm,
 		Op: op,
 	}
+	reqCopy, err := mongo.CopyMessage(req)
+	if err != nil {
+		return
+	}
+
 	var res *mongo.Message
 	if res, err = c.roundTrip(req, isMaster, tags); err != nil {
 		return
@@ -126,6 +131,8 @@ func (c *connection) handleMessage() (err error) {
 	if _, err = c.conn.Write(res.Wm); err != nil {
 		return
 	}
+
+	c.dualRoundTrip(reqCopy, res, isMaster, tags)
 
 	c.log.Debug(
 		"Response",
@@ -184,57 +191,42 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 		return mongo.IsMasterResponse(requestID, client.Description().Kind)
 	}
 
-	wmCopy := make([]byte, len(msg.Wm))
-	copy(wmCopy, msg.Wm)
+	return client.RoundTrip(msg, tags)
+}
 
-	copyOp, err := mongo.Decode(wmCopy)
-	if err != nil {
-		// TODO: handle error
-		c.log.Fatal("Whoops ", zap.Error(err))
-	}
-	msgCopy := &mongo.Message{
-		Wm: wmCopy,
-		Op: copyOp,
-	}
-	// TODO: Avoid duplicate reads
-	primaryMessage, err := client.RoundTrip(msg, tags)
-	if err != nil {
-		return primaryMessage, err
-	}
-
-	command, str := msgCopy.Op.CommandAndCollection()
+func (c *connection) dualRoundTrip(msg *mongo.Message, primaryRes *mongo.Message, isMaster bool, tags []string) {
+	dynamic := c.dynamic.ForAddress(c.address)
 	if dynamic.DualReadFrom != "" {
-		dualReadClient := c.mongoLookup(dynamic.DualReadFrom)
+		command, str := msg.Op.CommandAndCollection()
 		c.log.Info("Checking for read ", zap.Bool("is_read", mongo.IsRead(command)), zap.String("command", string(command)), zap.String("string result", str))
-		if mongo.IsRead(command) {
-			// TODO: Is this too much entropy/random?
-			if rand.Intn(100) < dynamic.DualReadSamplePercent {
-				dualReadMessage, err := dualReadClient.RoundTrip(msgCopy, tags)
-				if err != nil {
-					c.log.Error("Error dual reading: ", zap.Error(err))
-				}
 
-				primaryParsed, err := mongo.Decode(primaryMessage.Wm)
-				if err != nil {
-					c.log.Fatal("Error parsing message", zap.Error(err))
-				}
+		if mongo.IsRead(command) && rand.Intn(100) < dynamic.DualReadSamplePercent {
+			dualReadClient := c.mongoLookup(dynamic.DualReadFrom)
 
-				dualParsed, err := mongo.Decode(dualReadMessage.Wm)
-				// fmt.Printf("raw primary message:\n%+v\n\n", primaryMessage.Wm)
-				// fmt.Printf("raw dual message:\n%+v\n\n", dualReadMessage.Wm)
-				// fmt.Printf("parsed primary message:\n%+v\n\n", primaryParsed)
-				// fmt.Printf("parsed dual message:\n%+v\n\n", dualParsed)
+			var dualReadMessage *mongo.Message
+			var err error
+			if isMaster {
+				requestID := msg.Op.RequestID()
+				c.log.Debug("Non-proxied ismaster response", zap.Int32("request_id", requestID))
+				_, _ = mongo.IsMasterResponse(requestID, dualReadClient.Description().Kind)
+				// Don't compare isMaster queries
+				return
+			} else {
+				dualReadMessage, err = dualReadClient.RoundTrip(msg, tags)
+			}
 
-				// TODO: Can we avoid parsing and re-encoding??
-				if !bytes.Equal(primaryParsed.Encode(primaryParsed.RequestID()), dualParsed.Encode(primaryParsed.RequestID())) {
-					// Log out query???
-					c.log.Info("Dual reads mismatch", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
-				} else {
-					c.log.Info("Dual reads match", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
-				}
+			if err != nil {
+				c.log.Error("Error dual reading: ", zap.Error(err))
+			}
+
+			// RequestID is never equal and lives around the 5th byte, truncating it for now
+			// TODO: Look for better way to inspect contents of message
+			if !bytes.Equal(primaryRes.Wm[5:], dualReadMessage.Wm[5:]) {
+				// Log out query???
+				c.log.Info("Dual reads mismatch", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
+			} else {
+				c.log.Info("Dual reads match", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
 			}
 		}
 	}
-
-	return primaryMessage, nil
 }

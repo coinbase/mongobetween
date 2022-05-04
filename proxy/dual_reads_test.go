@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
@@ -18,7 +19,7 @@ var (
 	collection = "test_proxy_with_dual_reads"
 )
 
-func setupDualReadClients(t *testing.T) (*observer.ObservedLogs, []*mongo.Client) {
+func setupDualReadClients(t *testing.T) (*observer.ObservedLogs, []*mongo.Client, []func()) {
 	json := fmt.Sprintf(`{
 	  "Clusters": {
 		":%d": {
@@ -29,9 +30,12 @@ func setupDualReadClients(t *testing.T) (*observer.ObservedLogs, []*mongo.Client
 	}`, proxyPort, proxyPort+1)
 	f, err := ioutil.TempFile("", "*.json")
 	assert.Nil(t, err)
-	defer func() {
+
+	var shutdownFuncs []func()
+	shutdownFuncs = append(shutdownFuncs, func() {
 		_ = os.Remove(f.Name())
-	}()
+	})
+
 	_, err = f.Write([]byte(json))
 	assert.Nil(t, err)
 	err = f.Close()
@@ -43,11 +47,11 @@ func setupDualReadClients(t *testing.T) (*observer.ObservedLogs, []*mongo.Client
 	assert.Nil(t, err)
 
 	proxies := setupProxies(t, d, proxyPort, 2)
-	defer func() {
+	shutdownFuncs = append(shutdownFuncs, func() {
 		for _, p := range proxies {
 			p.Shutdown()
 		}
-	}()
+	})
 	for _, p := range proxies {
 		proxy := p
 		proxy.log = logger
@@ -58,12 +62,12 @@ func setupDualReadClients(t *testing.T) (*observer.ObservedLogs, []*mongo.Client
 	}
 
 	clients := []*mongo.Client{setupClient(t, "localhost", proxyPort), setupClient(t, "localhost", proxyPort+1)}
-	defer func() {
+	shutdownFuncs = append(shutdownFuncs, func() {
 		for _, client := range clients {
 			err := client.Disconnect(ctx)
 			assert.Nil(t, err)
 		}
-	}()
+	})
 
 	var upstreamClients []*mongo.Client
 	if os.Getenv("CI") == "true" {
@@ -71,12 +75,12 @@ func setupDualReadClients(t *testing.T) (*observer.ObservedLogs, []*mongo.Client
 	} else {
 		upstreamClients = []*mongo.Client{setupClient(t, "localhost", 27017), setupClient(t, "localhost", 27017+1)}
 	}
-	defer func() {
+	shutdownFuncs = append(shutdownFuncs, func() {
 		for _, client := range upstreamClients {
 			err := client.Disconnect(ctx)
 			assert.Nil(t, err)
 		}
-	}()
+	})
 
 	for _, client := range upstreamClients {
 		collection := client.Database("test").Collection(collection)
@@ -84,11 +88,11 @@ func setupDualReadClients(t *testing.T) (*observer.ObservedLogs, []*mongo.Client
 		assert.Nil(t, err)
 	}
 
-	return observedLogs, clients
+	return observedLogs, clients, shutdownFuncs
 }
 
 func TestProxyWithDualReads(t *testing.T) {
-	observedLogs, clients := setupDualReadClients(t)
+	observedLogs, clients, shutdownFuncs := setupDualReadClients(t)
 
 	ash := Trainer{primitive.NewObjectID(), "Ash", 10, "Pallet Town"}
 	misty := Trainer{primitive.NewObjectID(), "Misty", 10, "Cerulean City"}
@@ -104,6 +108,8 @@ func TestProxyWithDualReads(t *testing.T) {
 
 	var result Trainer
 	err = clients[0].Database("test").Collection(collection).FindOne(ctx, filter).Decode(&result)
+	// We don't have access to the wait groups in proxy, plugging in sleep for now
+	time.Sleep(1 * time.Second)
 	assert.Nil(t, err)
 
 	dualReadMatchLogs := observedLogs.FilterMessage("Dual reads match").All()
@@ -112,6 +118,7 @@ func TestProxyWithDualReads(t *testing.T) {
 	assert.Equal(t, 0, len(dualReadMismatchLogs))
 
 	count, err := clients[0].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
+	time.Sleep(1 * time.Second)
 	assert.Nil(t, err)
 	assert.Equal(t, int64(1), count)
 	dualReadMatchLogs = observedLogs.FilterMessage("Dual reads match").All()
@@ -120,6 +127,10 @@ func TestProxyWithDualReads(t *testing.T) {
 	assert.Equal(t, 1, len(dualReadMismatchLogs))
 
 	// Test with cursors
-	cursor, err := clients[0].Database("test").Collection(collection).Find(ctx, bson.M{})
+	_, err = clients[0].Database("test").Collection(collection).Find(ctx, bson.M{})
 	assert.Nil(t, err)
+
+	for _, f := range shutdownFuncs {
+		f()
+	}
 }

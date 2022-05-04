@@ -75,6 +75,21 @@ func Decode(wm []byte) (Operation, error) {
 	return op, nil
 }
 
+func CopyMessage(msg *Message) (*Message, error) {
+	wmCopy := make([]byte, len(msg.Wm))
+	copy(wmCopy, msg.Wm)
+
+	copyOp, err := Decode(wmCopy)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Message{
+		Wm: wmCopy,
+		Op: copyOp,
+	}, nil
+}
+
 type opUnknown struct {
 	opCode wiremessage.OpCode
 	reqID  int32
