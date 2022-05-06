@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -95,13 +96,18 @@ func TestProxyWithDualReads(t *testing.T) {
 	observedLogs, clients, shutdownFuncs := setupDualReadClients(t)
 
 	ash := Trainer{primitive.NewObjectID(), "Ash", 10, "Pallet Town"}
+	gary := Trainer{primitive.NewObjectID(), "Gary", 10, "Pallet Town"}
 	misty := Trainer{primitive.NewObjectID(), "Misty", 10, "Cerulean City"}
 	brock := Trainer{primitive.NewObjectID(), "Brock", 15, "Pewter City"}
 
 	_, err := clients[0].Database("test").Collection(collection).InsertOne(ctx, ash)
 	assert.Nil(t, err)
+	_, err = clients[0].Database("test").Collection(collection).InsertOne(ctx, gary)
+	assert.Nil(t, err)
+	_, err = clients[0].Database("test").Collection(collection).InsertOne(ctx, misty)
+	assert.Nil(t, err)
 
-	_, err = clients[1].Database("test").Collection(collection).InsertMany(ctx, []interface{}{ash, misty, brock})
+	_, err = clients[1].Database("test").Collection(collection).InsertMany(ctx, []interface{}{ash, gary, misty, brock})
 	assert.Nil(t, err)
 
 	filter := bson.D{{Key: "name", Value: "Ash"}}
@@ -120,15 +126,24 @@ func TestProxyWithDualReads(t *testing.T) {
 	count, err := clients[0].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
 	time.Sleep(1 * time.Second)
 	assert.Nil(t, err)
-	assert.Equal(t, int64(1), count)
+	assert.Equal(t, int64(3), count)
 	dualReadMatchLogs = observedLogs.FilterMessage("Dual reads match").All()
 	assert.Equal(t, 1, len(dualReadMatchLogs))
 	dualReadMismatchLogs = observedLogs.FilterMessage("Dual reads mismatch").All()
 	assert.Equal(t, 1, len(dualReadMismatchLogs))
 
 	// Test with cursors
-	_, err = clients[0].Database("test").Collection(collection).Find(ctx, bson.M{})
+	findOptions := options.Find()
+	findOptions.SetBatchSize(1)
+	cursor, err := clients[0].Database("test").Collection(collection).Find(ctx, bson.D{{Key: "age", Value: 10}}, findOptions)
 	assert.Nil(t, err)
+
+	ok := cursor.Next(ctx)
+	assert.True(t, ok)
+	cursor.Next(ctx)
+	assert.True(t, ok)
+	cursor.Next(ctx)
+	time.Sleep(1 * time.Second)
 
 	for _, f := range shutdownFuncs {
 		f()

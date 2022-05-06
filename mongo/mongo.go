@@ -159,7 +159,7 @@ func (m *Mongo) Close() {
 	}
 }
 
-func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
+func (m *Mongo) RoundTrip(msg *Message, tags []string, primaryResponseCursor int64) (_ *Message, err error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -189,6 +189,14 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	requestCursorID, _ := msg.Op.CursorID()
 	requestCommand, collection := msg.Op.CommandAndCollection()
 	transactionDetails := msg.Op.TransactionDetails()
+
+	// Fetch cursor from cache if doing a dual read
+	if primaryResponseCursor != 0 {
+		if dualCursorID, ok := m.cursors.peekDualID(requestCursorID, collection); ok {
+			requestCursorID = dualCursorID
+		}
+	}
+
 	server, err := m.selectServer(requestCursorID, collection, transactionDetails)
 	if err != nil {
 		return nil, err
@@ -218,6 +226,17 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		return nil, errors.New("server ErrorProcessor type assertion failed")
 	}
 
+	if msgGetMore, ok := (msg.Op).(*opMsg); ok {
+		encodedMsg := msgGetMore.EncodeWithCursorID(msg.Op.RequestID(), requestCursorID)
+		decodedMsg, err := Decode(encodedMsg)
+		if err == nil {
+			msg = &Message{
+				Wm: encodedMsg,
+				Op: decodedMsg,
+			}
+		}
+	}
+
 	unacknowledged := msg.Op.Unacknowledged()
 	wm, err := m.roundTrip(conn, msg.Wm, unacknowledged, tags)
 	if err != nil {
@@ -242,8 +261,10 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 
 	if responseCursorID, ok := op.CursorID(); ok {
 		if responseCursorID != 0 {
+			m.cursors.addDualID(primaryResponseCursor, collection, responseCursorID)
 			m.cursors.add(responseCursorID, collection, server)
 		} else if requestCursorID != 0 {
+			m.cursors.removeDualID(requestCursorID, collection)
 			m.cursors.remove(requestCursorID, collection)
 		}
 	}

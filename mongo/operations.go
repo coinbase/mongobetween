@@ -265,6 +265,28 @@ type opMsgSectionSingle struct {
 	msg bsoncore.Document
 }
 
+func (o *opMsgSectionSingle) rebuildWithCursorID(cursorID int64) (*opMsgSectionSingle, error) {
+	elements, err := o.msg.Elements()
+	if err != nil {
+		return nil, err
+	}
+
+	db := bsoncore.NewDocumentBuilder()
+	for _, element := range elements {
+		if element.CompareKey([]byte("getMore")) {
+			db = db.AppendInt64(element.Key(), cursorID)
+		} else {
+			db = db.AppendValue(element.Key(), element.Value())
+		}
+	}
+
+	doc := db.Build()
+	if err = doc.Validate(); err != nil {
+		return nil, err
+	}
+	return &opMsgSectionSingle{doc}, nil
+}
+
 func (o *opMsgSectionSingle) cursorID() (cursorID int64, ok bool) {
 	if getMore, ok := o.msg.Lookup("getMore").Int64OK(); ok {
 		return getMore, ok
@@ -393,11 +415,26 @@ func (m *opMsg) OpCode() wiremessage.OpCode {
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L898-L904
 func (m *opMsg) Encode(responseTo int32) []byte {
+	return m.EncodeWithCursorID(responseTo, 0)
+}
+
+func (m *opMsg) EncodeWithCursorID(responseTo int32, newCursorID int64) []byte {
 	var buffer []byte
 	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpMsg)
 	buffer = wiremessage.AppendMsgFlags(buffer, m.flags)
-	for _, section := range m.sections {
-		buffer = section.append(buffer)
+	for idx, section := range m.sections {
+		// Assume when doing getMores with a cursor, there's only one section.
+		if idx == 0 && newCursorID != 0 {
+			sectionSingle := section.(*opMsgSectionSingle)
+			sectionSingle, err := sectionSingle.rebuildWithCursorID(newCursorID)
+			if err != nil {
+				buffer = section.append(buffer)
+			} else {
+				buffer = sectionSingle.append(buffer)
+			}
+		} else {
+			buffer = section.append(buffer)
+		}
 	}
 	if m.flags&wiremessage.ChecksumPresent == wiremessage.ChecksumPresent {
 		// The checksum is a uint32, but we can use appendi32 to encode it. Overflow/underflow when casting to int32 is

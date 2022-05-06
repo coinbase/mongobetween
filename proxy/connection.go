@@ -132,6 +132,7 @@ func (c *connection) handleMessage() (err error) {
 		return
 	}
 
+	// TODO: Should this be a goroutine?
 	c.dualRoundTrip(reqCopy, res, isMaster, tags)
 
 	c.log.Debug(
@@ -191,7 +192,7 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 		return mongo.IsMasterResponse(requestID, client.Description().Kind)
 	}
 
-	return client.RoundTrip(msg, tags)
+	return client.RoundTrip(msg, tags, 0)
 }
 
 func (c *connection) dualRoundTrip(msg *mongo.Message, primaryRes *mongo.Message, isMaster bool, tags []string) {
@@ -203,6 +204,7 @@ func (c *connection) dualRoundTrip(msg *mongo.Message, primaryRes *mongo.Message
 		if mongo.IsRead(command) && rand.Intn(100) < dynamic.DualReadSamplePercent {
 			dualReadClient := c.mongoLookup(dynamic.DualReadFrom)
 
+			// fmt.Println("---- ---- ----- ---- ----")
 			var dualReadMessage *mongo.Message
 			var err error
 			if isMaster {
@@ -212,16 +214,28 @@ func (c *connection) dualRoundTrip(msg *mongo.Message, primaryRes *mongo.Message
 				// Don't compare isMaster queries
 				return
 			} else {
-				dualReadMessage, err = dualReadClient.RoundTrip(msg, tags)
+				primaryCursor, ok := primaryRes.Op.CursorID()
+				if !ok {
+					primaryCursor = 0
+				}
+				dualReadMessage, err = dualReadClient.RoundTrip(msg, tags, primaryCursor)
 			}
 
 			if err != nil {
 				c.log.Error("Error dual reading: ", zap.Error(err))
 			}
 
-			// RequestID is never equal and lives around the 5th byte, truncating it for now
+			// pwm, _ := mongo.Decode(primaryRes.Wm)
+			// dwm, _ := mongo.Decode(dualReadMessage.Wm)
+			// fmt.Printf("Prim response: %v\n", pwm)
+			// fmt.Printf("Dual response: %v\n", dwm)
+			// fmt.Printf("Prim WM: %v\n", primaryRes.Wm[6:])
+			// fmt.Printf("Dual WM: %v\n", dualReadMessage.Wm[6:])
+			// fmt.Println("---- Round Trip Over ----")
+
+			// RequestID is never equal and lives around the 6th byte, truncating it for now
 			// TODO: Look for better way to inspect contents of message
-			if !bytes.Equal(primaryRes.Wm[5:], dualReadMessage.Wm[5:]) {
+			if !bytes.Equal(primaryRes.Wm[6:], dualReadMessage.Wm[6:]) {
 				// Log out query???
 				c.log.Info("Dual reads mismatch", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
 			} else {
