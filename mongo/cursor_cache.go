@@ -46,7 +46,7 @@ func (c *cursorCache) remove(cursorID int64, collection string) {
 	c.c.Remove(buildKey(cursorID, collection))
 }
 
-func (c *cursorCache) peekDualID(cursorID int64, collection string) (int64, bool) {
+func (c *cursorCache) peekDualCursorID(cursorID int64, collection string) (int64, bool) {
 	v, ok := c.c.Peek(buildKey(cursorID, collection))
 	if !ok {
 		return 0, ok
@@ -64,11 +64,11 @@ func (c *cursorCache) peekDualID(cursorID int64, collection string) (int64, bool
 	return int64(id), true
 }
 
-func (c *cursorCache) addDualID(cursorID int64, collection string, dualCursorID int64) {
+func (c *cursorCache) addDualCursorID(cursorID int64, collection string, dualCursorID int64) {
 	c.c.Add(buildKey(cursorID, collection), strconv.FormatInt(dualCursorID, 10))
 }
 
-func (c *cursorCache) removeDualID(cursorID int64, collection string) {
+func (c *cursorCache) removeDualCursorID(cursorID int64, collection string) {
 	c.c.Remove(buildKey(cursorID, collection))
 }
 

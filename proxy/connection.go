@@ -133,7 +133,7 @@ func (c *connection) handleMessage() (err error) {
 	}
 
 	// TODO: Should this be a goroutine?
-	c.dualRoundTrip(reqCopy, res, isMaster, tags)
+	c.roundTripWithDualCursor(reqCopy, res, isMaster, tags)
 
 	c.log.Debug(
 		"Response",
@@ -192,10 +192,10 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 		return mongo.IsMasterResponse(requestID, client.Description().Kind)
 	}
 
-	return client.RoundTrip(msg, tags, 0)
+	return client.RoundTrip(msg, tags)
 }
 
-func (c *connection) dualRoundTrip(msg *mongo.Message, primaryRes *mongo.Message, isMaster bool, tags []string) {
+func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mongo.Message, isMaster bool, tags []string) {
 	dynamic := c.dynamic.ForAddress(c.address)
 	if dynamic.DualReadFrom != "" {
 		command, str := msg.Op.CommandAndCollection()
@@ -218,7 +218,7 @@ func (c *connection) dualRoundTrip(msg *mongo.Message, primaryRes *mongo.Message
 				if !ok {
 					primaryCursor = 0
 				}
-				dualReadMessage, err = dualReadClient.RoundTrip(msg, tags, primaryCursor)
+				dualReadMessage, err = dualReadClient.RoundTripWithDualCursor(msg, tags, primaryCursor)
 			}
 
 			if err != nil {

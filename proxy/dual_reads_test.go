@@ -140,10 +140,15 @@ func TestProxyWithDualReads(t *testing.T) {
 
 	ok := cursor.Next(ctx)
 	assert.True(t, ok)
-	cursor.Next(ctx)
+	ok = cursor.Next(ctx)
 	assert.True(t, ok)
-	cursor.Next(ctx)
+	ok = cursor.Next(ctx)
+	assert.True(t, ok)
 	time.Sleep(1 * time.Second)
+	dualReadMatchLogs = observedLogs.FilterMessage("Dual reads match").All()
+	assert.Equal(t, 4, len(dualReadMatchLogs))
+	dualReadMismatchLogs = observedLogs.FilterMessage("Dual reads mismatch").All()
+	assert.Equal(t, 1, len(dualReadMismatchLogs))
 
 	for _, f := range shutdownFuncs {
 		f()
