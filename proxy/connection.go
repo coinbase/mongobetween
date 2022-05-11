@@ -128,12 +128,14 @@ func (c *connection) handleMessage() (err error) {
 		fmt.Sprintf("response_op_code:%v", res.Op.OpCode()),
 	)
 
+	c.roundTripWithDualCursor(reqCopy, res, isMaster, tags)
+
 	if _, err = c.conn.Write(res.Wm); err != nil {
 		return
 	}
 
 	// TODO: Should this be a goroutine?
-	c.roundTripWithDualCursor(reqCopy, res, isMaster, tags)
+	// c.roundTripWithDualCursor(reqCopy, res, isMaster, tags)
 
 	c.log.Debug(
 		"Response",
@@ -204,7 +206,6 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 		if mongo.IsRead(command) && rand.Intn(100) < dynamic.DualReadSamplePercent {
 			dualReadClient := c.mongoLookup(dynamic.DualReadFrom)
 
-			// fmt.Println("---- ---- ----- ---- ----")
 			var dualReadMessage *mongo.Message
 			var err error
 			if isMaster {
@@ -225,17 +226,15 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 				c.log.Error("Error dual reading: ", zap.Error(err))
 			}
 
-			// pwm, _ := mongo.Decode(primaryRes.Wm)
-			// dwm, _ := mongo.Decode(dualReadMessage.Wm)
-			// fmt.Printf("Prim response: %v\n", pwm)
-			// fmt.Printf("Dual response: %v\n", dwm)
-			// fmt.Printf("Prim WM: %v\n", primaryRes.Wm[6:])
-			// fmt.Printf("Dual WM: %v\n", dualReadMessage.Wm[6:])
-			// fmt.Println("---- Round Trip Over ----")
+			pwm, _ := mongo.Decode(primaryRes.Wm)
+			dwm, _ := mongo.Decode(dualReadMessage.Wm)
+			fmt.Printf("Prim response: %v\n", pwm)
+			fmt.Printf("Dual response: %v\n", dwm)
 
-			// RequestID is never equal and lives around the 6th byte, truncating it for now
-			// TODO: Look for better way to inspect contents of message
-			if !bytes.Equal(primaryRes.Wm[6:], dualReadMessage.Wm[6:]) {
+			primSection := mongo.AssertOpMsgSection(primaryRes.Op)
+			dualSection := mongo.AssertOpMsgSection(dualReadMessage.Op)
+
+			if !bytes.Equal(primSection, dualSection) {
 				// Log out query???
 				c.log.Info("Dual reads mismatch", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
 			} else {

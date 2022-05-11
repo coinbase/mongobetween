@@ -5,7 +5,6 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
@@ -114,8 +113,6 @@ func TestProxyWithDualReads(t *testing.T) {
 
 	var result Trainer
 	err = clients[0].Database("test").Collection(collection).FindOne(ctx, filter).Decode(&result)
-	// We don't have access to the wait groups in proxy, plugging in sleep for now
-	time.Sleep(1 * time.Second)
 	assert.Nil(t, err)
 
 	dualReadMatchLogs := observedLogs.FilterMessage("Dual reads match").All()
@@ -124,7 +121,6 @@ func TestProxyWithDualReads(t *testing.T) {
 	assert.Equal(t, 0, len(dualReadMismatchLogs))
 
 	count, err := clients[0].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
-	time.Sleep(1 * time.Second)
 	assert.Nil(t, err)
 	assert.Equal(t, int64(3), count)
 	dualReadMatchLogs = observedLogs.FilterMessage("Dual reads match").All()
@@ -138,13 +134,13 @@ func TestProxyWithDualReads(t *testing.T) {
 	cursor, err := clients[0].Database("test").Collection(collection).Find(ctx, bson.D{{Key: "age", Value: 10}}, findOptions)
 	assert.Nil(t, err)
 
+	// Grab/iterate through all 3 documents in cursor
 	ok := cursor.Next(ctx)
 	assert.True(t, ok)
 	ok = cursor.Next(ctx)
 	assert.True(t, ok)
 	ok = cursor.Next(ctx)
 	assert.True(t, ok)
-	time.Sleep(1 * time.Second)
 	dualReadMatchLogs = observedLogs.FilterMessage("Dual reads match").All()
 	assert.Equal(t, 4, len(dualReadMatchLogs))
 	dualReadMismatchLogs = observedLogs.FilterMessage("Dual reads mismatch").All()

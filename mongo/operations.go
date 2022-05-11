@@ -357,6 +357,18 @@ func (o *opMsgSectionSequence) String() string {
 	return fmt.Sprintf("{ SectionSingle identifier: %s, msgs: [%s] }", o.identifier, strings.Join(msgs, ", "))
 }
 
+func AssertOpMsgSection(op Operation) []byte {
+	opmsg, _ := op.(*opMsg)
+	section := opmsg.sections[0].(*opMsgSectionSingle)
+	cursorDoc := section.msg.Lookup("cursor").Document()
+
+	if batchDoc := cursorDoc.Lookup("firstBatch").Data; len(batchDoc) > 0 {
+		return batchDoc
+	} else {
+		return cursorDoc.Lookup("nextBatch").Data
+	}
+}
+
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1387-L1423
 func decodeMsg(reqID int32, wm []byte) (*opMsg, error) {
 	var ok bool
