@@ -357,7 +357,7 @@ func (o *opMsgSectionSequence) String() string {
 	return fmt.Sprintf("{ SectionSingle identifier: %s, msgs: [%s] }", o.identifier, strings.Join(msgs, ", "))
 }
 
-func AssertOpMsgSection(op Operation) []byte {
+func MustOpMsgCursorSection(op Operation) []byte {
 	opmsg, _ := op.(*opMsg)
 	section := opmsg.sections[0].(*opMsgSectionSingle)
 	cursorDoc := section.msg.Lookup("cursor").Document()

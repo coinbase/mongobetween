@@ -69,15 +69,15 @@ func (c *connection) processMessages() {
 func (c *connection) handleMessage() (err error) {
 	var tags []string
 
-	defer func(start time.Time) {
-		tags := append(tags, fmt.Sprintf("success:%v", err == nil))
-		_ = c.statsd.Timing("handle_message", time.Since(start), tags, 1)
-	}(time.Now())
-
 	var wm []byte
 	if wm, err = c.readWireMessage(); err != nil {
 		return
 	}
+
+	defer func(start time.Time) {
+		tags := append(tags, fmt.Sprintf("success:%v", err == nil))
+		_ = c.statsd.Timing("handle_message", time.Since(start), tags, 1)
+	}(time.Now())
 
 	var op mongo.Operation
 	if op, err = mongo.Decode(wm); err != nil {
@@ -128,14 +128,11 @@ func (c *connection) handleMessage() (err error) {
 		fmt.Sprintf("response_op_code:%v", res.Op.OpCode()),
 	)
 
-	c.roundTripWithDualCursor(reqCopy, res, isMaster, tags)
-
 	if _, err = c.conn.Write(res.Wm); err != nil {
 		return
 	}
 
-	// TODO: Should this be a goroutine?
-	// c.roundTripWithDualCursor(reqCopy, res, isMaster, tags)
+	c.roundTripWithDualCursor(reqCopy, res, isMaster, tags)
 
 	c.log.Debug(
 		"Response",
@@ -215,10 +212,8 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 				// Don't compare isMaster queries
 				return
 			} else {
-				primaryCursor, ok := primaryRes.Op.CursorID()
-				if !ok {
-					primaryCursor = 0
-				}
+				primaryCursor, _ := primaryRes.Op.CursorID()
+				tags = append(tags, "dual_read:true")
 				dualReadMessage, err = dualReadClient.RoundTripWithDualCursor(msg, tags, primaryCursor)
 			}
 
@@ -226,19 +221,13 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 				c.log.Error("Error dual reading: ", zap.Error(err))
 			}
 
-			pwm, _ := mongo.Decode(primaryRes.Wm)
-			dwm, _ := mongo.Decode(dualReadMessage.Wm)
-			fmt.Printf("Prim response: %v\n", pwm)
-			fmt.Printf("Dual response: %v\n", dwm)
+			primSection := mongo.MustOpMsgCursorSection(primaryRes.Op)
+			dualSection := mongo.MustOpMsgCursorSection(dualReadMessage.Op)
 
-			primSection := mongo.AssertOpMsgSection(primaryRes.Op)
-			dualSection := mongo.AssertOpMsgSection(dualReadMessage.Op)
-
-			if !bytes.Equal(primSection, dualSection) {
-				// Log out query???
-				c.log.Info("Dual reads mismatch", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
-			} else {
+			if bytes.Equal(primSection, dualSection) {
 				c.log.Info("Dual reads match", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
+			} else {
+				c.log.Info("Dual reads mismatch", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
 			}
 		}
 	}

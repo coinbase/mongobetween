@@ -45,7 +45,6 @@ func IsWrite(command Command) bool {
 	return false
 }
 
-// This feels super weak?
 func IsRead(command Command) bool {
 	switch command {
 	case Aggregate, Count, Find, GetMore, ListCollections, ListIndexes:

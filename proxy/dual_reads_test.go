@@ -1,10 +1,12 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
@@ -115,18 +117,14 @@ func TestProxyWithDualReads(t *testing.T) {
 	err = clients[0].Database("test").Collection(collection).FindOne(ctx, filter).Decode(&result)
 	assert.Nil(t, err)
 
-	dualReadMatchLogs := observedLogs.FilterMessage("Dual reads match").All()
-	assert.Equal(t, 1, len(dualReadMatchLogs))
-	dualReadMismatchLogs := observedLogs.FilterMessage("Dual reads mismatch").All()
-	assert.Equal(t, 0, len(dualReadMismatchLogs))
+	assertLogs(t, observedLogs, "Dual reads match", 1)
+	assertLogs(t, observedLogs, "Dual reads mismatch", 0)
 
 	count, err := clients[0].Database("test").Collection(collection).CountDocuments(ctx, bson.D{})
 	assert.Nil(t, err)
 	assert.Equal(t, int64(3), count)
-	dualReadMatchLogs = observedLogs.FilterMessage("Dual reads match").All()
-	assert.Equal(t, 1, len(dualReadMatchLogs))
-	dualReadMismatchLogs = observedLogs.FilterMessage("Dual reads mismatch").All()
-	assert.Equal(t, 1, len(dualReadMismatchLogs))
+	assertLogs(t, observedLogs, "Dual reads match", 1)
+	assertLogs(t, observedLogs, "Dual reads mismatch", 1)
 
 	// Test with cursors
 	findOptions := options.Find()
@@ -141,12 +139,28 @@ func TestProxyWithDualReads(t *testing.T) {
 	assert.True(t, ok)
 	ok = cursor.Next(ctx)
 	assert.True(t, ok)
-	dualReadMatchLogs = observedLogs.FilterMessage("Dual reads match").All()
-	assert.Equal(t, 4, len(dualReadMatchLogs))
-	dualReadMismatchLogs = observedLogs.FilterMessage("Dual reads mismatch").All()
-	assert.Equal(t, 1, len(dualReadMismatchLogs))
+	assertLogs(t, observedLogs, "Dual reads match", 4)
+	assertLogs(t, observedLogs, "Dual reads mismatch", 1)
 
 	for _, f := range shutdownFuncs {
 		f()
+	}
+}
+
+func assertLogs(t *testing.T, logs *observer.ObservedLogs, message string, count int) {
+	ctxTimeout, _ := context.WithTimeout(ctx, 2*time.Second)
+
+	for {
+		select {
+		case <-ctxTimeout.Done():
+			t.Errorf("Failed to assert log count %d for log message %s", count, message)
+		default:
+			matchedLogs := logs.FilterMessage(message).All()
+			if count == len(matchedLogs) {
+				return
+			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
 	}
 }
