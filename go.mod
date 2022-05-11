@@ -4,7 +4,7 @@ go 1.13
 
 require (
 	github.com/DataDog/datadog-go v3.7.1+incompatible
-	github.com/hashicorp/go-getter v1.5.9
+	github.com/hashicorp/go-getter v1.5.11
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/stretchr/testify v1.6.1

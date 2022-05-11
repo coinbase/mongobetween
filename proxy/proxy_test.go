@@ -125,7 +125,8 @@ func TestProxyUnacknowledgedWrites(t *testing.T) {
 
 	// Insert a document using the setup collection and ensure document count is 2. Doing this ensures that the proxy
 	// did not crash while processing the unacknowledged write.
-	_, err = setupCollection.InsertOne(ctx, ash)
+	misty := Trainer{primitive.NewObjectID(), "Misty", 10, "Cerulean City"}
+	_, err = setupCollection.InsertOne(ctx, misty)
 	assert.Nil(t, err)
 
 	count, err := setupCollection.CountDocuments(ctx, bson.D{})

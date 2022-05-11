@@ -2,9 +2,10 @@ package proxy
 
 import (
 	"bytes"
+	"crypto/rand"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/big"
 	"net"
 	"runtime/debug"
 	"time"
@@ -200,7 +201,11 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 		command, str := msg.Op.CommandAndCollection()
 		c.log.Info("Checking for read ", zap.Bool("is_read", mongo.IsRead(command)), zap.String("command", string(command)), zap.String("string result", str))
 
-		if mongo.IsRead(command) && rand.Intn(100) < dynamic.DualReadSamplePercent {
+		bigint, err := rand.Int(rand.Reader, big.NewInt(100))
+		if err != nil {
+			bigint = big.NewInt(100)
+		}
+		if mongo.IsRead(command) && int(bigint.Int64()) <= dynamic.DualReadSamplePercent {
 			dualReadClient := c.mongoLookup(dynamic.DualReadFrom)
 
 			var dualReadMessage *mongo.Message
@@ -211,11 +216,11 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 				_, _ = mongo.IsMasterResponse(requestID, dualReadClient.Description().Kind)
 				// Don't compare isMaster queries
 				return
-			} else {
-				primaryCursor, _ := primaryRes.Op.CursorID()
-				tags = append(tags, "dual_read:true")
-				dualReadMessage, err = dualReadClient.RoundTripWithDualCursor(msg, tags, primaryCursor)
 			}
+
+			primaryCursor, _ := primaryRes.Op.CursorID()
+			tags = append(tags, "dual_read:true")
+			dualReadMessage, err = dualReadClient.RoundTripWithDualCursor(msg, tags, primaryCursor)
 
 			if err != nil {
 				c.log.Error("Error dual reading: ", zap.Error(err))

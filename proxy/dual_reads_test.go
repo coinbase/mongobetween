@@ -148,7 +148,8 @@ func TestProxyWithDualReads(t *testing.T) {
 }
 
 func assertLogs(t *testing.T, logs *observer.ObservedLogs, message string, count int) {
-	ctxTimeout, _ := context.WithTimeout(ctx, 2*time.Second)
+	ctxTimeout, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 
 	for {
 		select {
