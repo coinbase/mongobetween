@@ -4,7 +4,7 @@
 `mongobetween` is used in production at Coinbase. It is currently deployed as a Docker sidecar alongside a Rails application using the [Ruby Mongo driver](https://github.com/mongodb/mongo-ruby-driver), connecting to a number of sharded MongoDB clusters. It was designed to connect to `mongos` routers who are responsible for server selection for read/write preferences (connecting directly to a replica set's `mongod` instances hasn't been battle tested).
 
 ### How it works
-`mongobetween` listens for incoming connections from an application, and proxies any queries to the [MongoDB Go driver](https://github.com/mongodb/mongo-go-driver) which is connected to a MongoDB cluster. It also intercepts any `ismaster` commands from the application, and responds with `"I'm a shard router (mongos)"`, without proxying. This means `mongobetween` appears to the application as an always-available MongoDB shard router, and any MongoDB connection issues or failovers are handled internally by the Go driver.
+`mongobetween` listens for incoming connections from an application, and proxies any queries to the [MongoDB Go driver](https://github.com/mongodb/mongo-go-driver) which is connected to a MongoDB cluster. It also intercepts any `ismaster` commands from the application, and responds with `"I'm a shard router (mongos)"`, without proxying. This means `mongobetween` appears to the application as an always-available MongoDB shard router, and any MongoDB connection issues or failovers are handled internally by the Go driver. 
 
 ### Installation
 ```
