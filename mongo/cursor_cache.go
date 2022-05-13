@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
@@ -30,7 +31,6 @@ func (c *cursorCache) count() int {
 }
 
 func (c *cursorCache) peek(cursorID int64, collection string) (server driver.Server, ok bool) {
-
 	v, ok := c.c.Peek(buildKey(cursorID, collection))
 	if !ok {
 		return
@@ -43,6 +43,32 @@ func (c *cursorCache) add(cursorID int64, collection string, server driver.Serve
 }
 
 func (c *cursorCache) remove(cursorID int64, collection string) {
+	c.c.Remove(buildKey(cursorID, collection))
+}
+
+func (c *cursorCache) peekDualCursorID(cursorID int64, collection string) (int64, bool) {
+	v, ok := c.c.Peek(buildKey(cursorID, collection))
+	if !ok {
+		return 0, ok
+	}
+
+	str, ok := v.(string)
+	if !ok {
+		return 0, ok
+	}
+
+	id, err := strconv.ParseInt(str, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return int64(id), true
+}
+
+func (c *cursorCache) addDualCursorID(cursorID int64, collection string, dualCursorID int64) {
+	c.c.Add(buildKey(cursorID, collection), strconv.FormatInt(dualCursorID, 10))
+}
+
+func (c *cursorCache) removeDualCursorID(cursorID int64, collection string) {
 	c.c.Remove(buildKey(cursorID, collection))
 }
 

@@ -23,8 +23,10 @@ type DynamicClusters struct {
 }
 
 type DynamicCluster struct {
-	DisableWrites bool
-	RedirectTo    string
+	DisableWrites         bool
+	RedirectTo            string
+	DualReadFrom          string
+	DualReadSamplePercent int
 }
 
 func NewDynamic(url string, log *zap.Logger) (*Dynamic, error) {
