@@ -225,8 +225,18 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 				c.log.Error("Error dual reading: ", zap.Error(err))
 			}
 
-			primSection := mongo.MustOpMsgCursorSection(primaryRes.Op)
-			dualSection := mongo.MustOpMsgCursorSection(dualReadMessage.Op)
+			primSection, ok := mongo.MustOpMsgCursorSection(primaryRes.Op)
+			if !ok {
+				c.log.Sugar().Infof("Query run that errored on primary: %+v\n", msg.Op)
+				c.log.Sugar().Infof("Response that errored on primary: %+v\n", primaryRes.Op)
+				return
+			}
+			dualSection, ok := mongo.MustOpMsgCursorSection(dualReadMessage.Op)
+			if !ok {
+				c.log.Sugar().Infof("Query run that errored on secondary: %+v\n", msg.Op)
+				c.log.Sugar().Infof("Response that errored on secondary: %+v\n", dualReadMessage.Op)
+				return
+			}
 
 			if bytes.Equal(primSection, dualSection) {
 				c.log.Info("Dual reads match", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))

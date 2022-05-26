@@ -357,15 +357,19 @@ func (o *opMsgSectionSequence) String() string {
 	return fmt.Sprintf("{ SectionSingle identifier: %s, msgs: [%s] }", o.identifier, strings.Join(msgs, ", "))
 }
 
-func MustOpMsgCursorSection(op Operation) []byte {
+func MustOpMsgCursorSection(op Operation) ([]byte, bool) {
 	opmsg, _ := op.(*opMsg)
 	section := opmsg.sections[0].(*opMsgSectionSingle)
-	cursorDoc := section.msg.Lookup("cursor").Document()
+	cursor := section.msg.Lookup("cursor")
+	cursorDoc, ok := cursor.DocumentOK()
+	if !ok {
+		return nil, false
+	}
 
 	if batchDoc := cursorDoc.Lookup("firstBatch").Data; len(batchDoc) > 0 {
-		return batchDoc
+		return batchDoc, true
 	}
-	return cursorDoc.Lookup("nextBatch").Data
+	return cursorDoc.Lookup("nextBatch").Data, true
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1387-L1423
