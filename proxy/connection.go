@@ -198,8 +198,7 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mongo.Message, isMaster bool, tags []string) {
 	dynamic := c.dynamic.ForAddress(c.address)
 	if dynamic.DualReadFrom != "" {
-		command, str := msg.Op.CommandAndCollection()
-		c.log.Info("Checking for read ", zap.Bool("is_read", mongo.IsRead(command)), zap.String("command", string(command)), zap.String("string result", str))
+		command, _ := msg.Op.CommandAndCollection()
 
 		bigint, err := rand.Int(rand.Reader, big.NewInt(100))
 		if err != nil {
