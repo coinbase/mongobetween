@@ -198,7 +198,7 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mongo.Message, isMaster bool, tags []string) {
 	dynamic := c.dynamic.ForAddress(c.address)
 	if dynamic.DualReadFrom != "" {
-		command, _ := msg.Op.CommandAndCollection()
+		command, collection := msg.Op.CommandAndCollection()
 
 		bigint, err := rand.Int(rand.Reader, big.NewInt(100))
 		if err != nil {
@@ -238,11 +238,9 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 				return
 			}
 
-			if bytes.Equal(primSection, dualSection) {
-				c.log.Info("Dual reads match", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
-			} else {
-				c.log.Info("Dual reads mismatch", zap.String("real_socket", c.address), zap.String("test_socket", dynamic.DualReadFrom))
-			}
+			match := bytes.Equal(primSection, dualSection)
+			// TODO: add timing to compare primary and secondary performance
+			_ = c.statsd.Incr("dual_read_result", []string{fmt.Sprintf("collection:%s,match:%t", collection, match)}, 1)
 		}
 	}
 }
