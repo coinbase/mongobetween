@@ -225,6 +225,8 @@ func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mon
 				c.log.Error("Error dual reading: ", zap.Error(err))
 			}
 
+			c.log.Sugar().Infof("Query run on primary: %+v\n", msg.Op)
+			c.log.Sugar().Infof("Response on primary: %+v\n", primaryRes.Op)
 			primSection, ok := mongo.MustOpMsgCursorSection(primaryRes.Op)
 			if !ok {
 				c.log.Sugar().Infof("Query run that errored on primary: %+v\n", msg.Op)
