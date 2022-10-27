@@ -2,12 +2,12 @@ version: 2
 jobs:
   tests:
     docker:
-      - image: circleci/golang:1.14
-      - image: circleci/mongo:4.2
+      - image: cimg/go:1.18
+      - image: circleci/mongo:5.0
         name: mongo1
-      - image: circleci/mongo:4.2
+      - image: circleci/mongo:5.0
         name: mongo2
-      - image: circleci/mongo:4.2
+      - image: circleci/mongo:5.0
         name: mongo3
     steps:
       - checkout
@@ -38,7 +38,7 @@ jobs:
 
   lint:
     docker:
-      - image: circleci/golang:1.14
+      - image: cimg/go:1.18
     steps:
       - checkout
 
@@ -46,7 +46,7 @@ jobs:
           keys:
             - v1-pkg-cache
 
-      - run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/fc0a898a6ae297c0ef59e2f1d824713d6f1cd222/install.sh | sh -s -- -d -b $(go env GOPATH)/bin v1.27.0
+      - run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/a31485fe906612b2884239fdf7c55aec76ea7596/install.sh | sh -s -- -d -b $(go env GOPATH)/bin v1.50.1
       - run: golangci-lint --version
       - run: make lint
 
