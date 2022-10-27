@@ -20,6 +20,10 @@ func (m *mockServer) MinRTT() time.Duration {
 	return time.Duration(0)
 }
 
+func (m *mockServer) RTT90() time.Duration {
+	return time.Duration(0)
+}
+
 func TestCount(t *testing.T) {
 	cc := newCursorCache()
 	cc.add(10, "db.coll", &mockServer{})
