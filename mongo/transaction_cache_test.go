@@ -16,6 +16,10 @@ func (m *transactionMockServer) MinRTT() time.Duration {
 	return time.Duration(0)
 }
 
+func (m *transactionMockServer) RTT90() time.Duration {
+	return time.Duration(0)
+}
+
 func (m *transactionMockServer) Connection(context.Context) (driver.Connection, error) {
 	return nil, nil
 }
