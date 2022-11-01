@@ -275,7 +275,7 @@ func (m *Mongo) RoundTripWithDualCursor(msg *Message, tags []string, originalCur
 
 	// Rewrite message with new cursor ID if doing a getMore
 	if opMsg, ok := (msg.Op).(*opMsg); ok {
-		encodedMsg := opMsg.EncodeWithCursorID(msg.Op.RequestID(), requestCursorID)
+		encodedMsg := opMsg.EncodeWithCursorID(msg.Op.RequestID(), requestCursorID, true)
 		decodedMsg, err := Decode(encodedMsg)
 		if err == nil {
 			msg = &Message{

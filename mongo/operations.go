@@ -287,6 +287,26 @@ func (o *opMsgSectionSingle) rebuildWithCursorID(cursorID int64) (*opMsgSectionS
 	return &opMsgSectionSingle{doc}, nil
 }
 
+func (o *opMsgSectionSingle) stripCluserTime(cursorID int64) (*opMsgSectionSingle, error) {
+	elements, err := o.msg.Elements()
+	if err != nil {
+		return nil, err
+	}
+
+	db := bsoncore.NewDocumentBuilder()
+	for _, element := range elements {
+		if !element.CompareKey([]byte("$clusterTime")) {
+			db = db.AppendValue(element.Key(), element.Value())
+		}
+	}
+
+	doc := db.Build()
+	if err = doc.Validate(); err != nil {
+		return nil, err
+	}
+	return &opMsgSectionSingle{doc}, nil
+}
+
 func (o *opMsgSectionSingle) cursorID() (cursorID int64, ok bool) {
 	if getMore, ok := o.msg.Lookup("getMore").Int64OK(); ok {
 		return getMore, ok
@@ -430,25 +450,32 @@ func (m *opMsg) OpCode() wiremessage.OpCode {
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L898-L904
 func (m *opMsg) Encode(responseTo int32) []byte {
-	return m.EncodeWithCursorID(responseTo, 0)
+	return m.EncodeWithCursorID(responseTo, 0, false)
 }
 
-func (m *opMsg) EncodeWithCursorID(responseTo int32, newCursorID int64) []byte {
+func (m *opMsg) EncodeWithCursorID(responseTo int32, newCursorID int64, forDualRead bool) []byte {
 	var buffer []byte
 	idx, buffer := wiremessage.AppendHeaderStart(buffer, 0, responseTo, wiremessage.OpMsg)
 	buffer = wiremessage.AppendMsgFlags(buffer, m.flags)
 	for idx, section := range m.sections {
+		sectionSingle := section.(*opMsgSectionSingle)
+		if forDualRead {
+			sectionWithoutTime, err := sectionSingle.stripCluserTime(newCursorID)
+			if err == nil {
+				sectionSingle = sectionWithoutTime
+			}
+		}
+
 		// Assume when doing getMores with a cursor, there's only one section.
 		if idx == 0 && newCursorID != 0 {
-			sectionSingle := section.(*opMsgSectionSingle)
-			sectionSingle, err := sectionSingle.rebuildWithCursorID(newCursorID)
+			sectionWithNewCursor, err := sectionSingle.rebuildWithCursorID(newCursorID)
 			if err != nil {
 				buffer = section.append(buffer)
 			} else {
-				buffer = sectionSingle.append(buffer)
+				buffer = sectionWithNewCursor.append(buffer)
 			}
 		} else {
-			buffer = section.append(buffer)
+			buffer = sectionSingle.append(buffer)
 		}
 	}
 	if m.flags&wiremessage.ChecksumPresent == wiremessage.ChecksumPresent {
