@@ -137,7 +137,7 @@ func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client) *event.Serve
 	return &event.ServerMonitor{
 
 		ServerDescriptionChanged: func(e *event.ServerDescriptionChangedEvent) {
-			statsdClient.Incr("server_description_changed_event",
+			_ = statsdClient.Incr("server_description_changed_event",
 				[]string{
 					fmt.Sprintf("address:%s", e.Address),
 					fmt.Sprintf("topology_id:%s", e.TopologyID),
@@ -154,7 +154,7 @@ func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client) *event.Serve
 		},
 
 		TopologyDescriptionChanged: func(e *event.TopologyDescriptionChangedEvent) {
-			statsdClient.Incr("topology_description_changed_event",
+			_ = statsdClient.Incr("topology_description_changed_event",
 				[]string{
 					fmt.Sprintf("topology_id:%s", e.TopologyID),
 				}, 0)
@@ -168,14 +168,14 @@ func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client) *event.Serve
 		},
 
 		TopologyOpening: func(e *event.TopologyOpeningEvent) {
-			statsdClient.Incr("topology_opening_event",
+			_ = statsdClient.Incr("topology_opening_event",
 				[]string{
 					fmt.Sprintf("topology_id:%s", e.TopologyID),
 				}, 0)
 		},
 
 		TopologyClosed: func(e *event.TopologyClosedEvent) {
-			statsdClient.Incr("topology_closed_event",
+			_ = statsdClient.Incr("topology_closed_event",
 				[]string{
 					fmt.Sprintf("topology_id:%s", e.TopologyID),
 				}, 0)
