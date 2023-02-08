@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -51,12 +52,21 @@ func extractTopology(c *mongo.Client) *topology.Topology {
 	return d.Interface().(*topology.Topology)
 }
 
+func envVarIsTrue(envVar string) bool {
+	return os.Getenv(envVar) == "1" ||
+		strings.ToLower(os.Getenv(envVar)) == "true"
+}
+
 func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, ping bool) (*Mongo, error) {
 	// timeout shouldn't be hit if ping == false, as Connect doesn't block the current goroutine
 	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
 
 	opts = opts.SetPoolMonitor(poolMonitor(sd))
+
+	if envVarIsTrue("ENABLE_SERVER_MONITORING") {
+		opts = opts.SetServerMonitor(serverMonitoring(log, sd))
+	}
 
 	var err error
 	log.Info("Connect")
@@ -118,6 +128,57 @@ func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
 			default:
 				_ = sd.Incr(name, tags, 1)
 			}
+		},
+	}
+}
+
+func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client) *event.ServerMonitor {
+
+	return &event.ServerMonitor{
+
+		ServerDescriptionChanged: func(e *event.ServerDescriptionChangedEvent) {
+			statsdClient.Incr("server_description_changed_event",
+				[]string{
+					fmt.Sprintf("address:%s", e.Address),
+					fmt.Sprintf("topology_id:%s", e.TopologyID),
+				}, 0)
+
+			if envVarIsTrue("ENABLE_SERVER_MONITORING_LOGGING") {
+				log.Info("ServerDescriptionChangedEvent detected. ",
+					zap.Any("address", e.Address),
+					zap.Any("topologyId", e.TopologyID),
+					zap.Any("prevDescription", e.PreviousDescription),
+					zap.Any("newDescription", e.NewDescription),
+				)
+			}
+		},
+
+		TopologyDescriptionChanged: func(e *event.TopologyDescriptionChangedEvent) {
+			statsdClient.Incr("topology_description_changed_event",
+				[]string{
+					fmt.Sprintf("topology_id:%s", e.TopologyID),
+				}, 0)
+			if envVarIsTrue("ENABLE_SERVER_MONITORING_LOGGING") {
+				log.Info("TopologyDescriptionChangedEvent detected. ",
+					zap.Any("topologyId", e.TopologyID),
+					zap.Any("prevDescription", e.PreviousDescription),
+					zap.Any("newDescription", e.NewDescription),
+				)
+			}
+		},
+
+		TopologyOpening: func(e *event.TopologyOpeningEvent) {
+			statsdClient.Incr("topology_opening_event",
+				[]string{
+					fmt.Sprintf("topology_id:%s", e.TopologyID),
+				}, 0)
+		},
+
+		TopologyClosed: func(e *event.TopologyClosedEvent) {
+			statsdClient.Incr("topology_closed_event",
+				[]string{
+					fmt.Sprintf("topology_id:%s", e.TopologyID),
+				}, 0)
 		},
 	}
 }
