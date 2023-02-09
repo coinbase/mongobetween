@@ -2,6 +2,7 @@ package mongo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/DataDog/datadog-go/statsd"
+	"github.com/coinbase/mongobetween/util"
 	"go.mongodb.org/mongo-driver/event"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/address"
@@ -23,8 +25,6 @@ import (
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
-
-	"github.com/coinbase/mongobetween/util"
 )
 
 const pingTimeout = 60 * time.Second
@@ -136,19 +136,43 @@ func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client) *event.Serve
 
 	return &event.ServerMonitor{
 
+		ServerOpening: func(e *event.ServerOpeningEvent) {
+			_ = statsdClient.Incr("server_opening_event",
+				[]string{
+					fmt.Sprintf("address:%s", e.Address),
+					fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
+				}, 0)
+		},
+
+		ServerClosed: func(e *event.ServerClosedEvent) {
+			_ = statsdClient.Incr("server_closed_event",
+				[]string{
+					fmt.Sprintf("address:%s", e.Address),
+					fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
+				}, 0)
+		},
+
 		ServerDescriptionChanged: func(e *event.ServerDescriptionChangedEvent) {
 			_ = statsdClient.Incr("server_description_changed_event",
 				[]string{
 					fmt.Sprintf("address:%s", e.Address),
-					fmt.Sprintf("topology_id:%s", e.TopologyID),
+					fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
 				}, 0)
 
 			if envVarIsTrue("ENABLE_SERVER_MONITORING_LOGGING") {
+				var prevDMap map[string]interface{}
+				var newDMap map[string]interface{}
+
+				prevDescription, _ := json.Marshal(&e.PreviousDescription)
+				_ = json.Unmarshal(prevDescription, &prevDMap)
+				newDescription, _ := json.Marshal(e.NewDescription)
+				_ = json.Unmarshal(newDescription, &newDMap)
+
 				log.Info("ServerDescriptionChangedEvent detected. ",
 					zap.Any("address", e.Address),
-					zap.Any("topologyId", e.TopologyID),
-					zap.Any("prevDescription", e.PreviousDescription),
-					zap.Any("newDescription", e.NewDescription),
+					zap.String("topologyId", e.TopologyID.Hex()),
+					zap.Any("prevDescription", prevDMap),
+					zap.Any("newDescription", newDMap),
 				)
 			}
 		},
@@ -156,13 +180,21 @@ func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client) *event.Serve
 		TopologyDescriptionChanged: func(e *event.TopologyDescriptionChangedEvent) {
 			_ = statsdClient.Incr("topology_description_changed_event",
 				[]string{
-					fmt.Sprintf("topology_id:%s", e.TopologyID),
+					fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
 				}, 0)
 			if envVarIsTrue("ENABLE_SERVER_MONITORING_LOGGING") {
+				var prevDMap map[string]interface{}
+				var newDMap map[string]interface{}
+
+				prevDescription, _ := json.Marshal(&e.PreviousDescription)
+				_ = json.Unmarshal(prevDescription, &prevDMap)
+				newDescription, _ := json.Marshal(e.NewDescription)
+				_ = json.Unmarshal(newDescription, &newDMap)
+
 				log.Info("TopologyDescriptionChangedEvent detected. ",
-					zap.Any("topologyId", e.TopologyID),
-					zap.Any("prevDescription", e.PreviousDescription),
-					zap.Any("newDescription", e.NewDescription),
+					zap.String("topologyId", e.TopologyID.Hex()),
+					zap.Any("prevDescription", prevDMap),
+					zap.Any("newDescription", newDMap),
 				)
 			}
 		},
@@ -170,14 +202,14 @@ func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client) *event.Serve
 		TopologyOpening: func(e *event.TopologyOpeningEvent) {
 			_ = statsdClient.Incr("topology_opening_event",
 				[]string{
-					fmt.Sprintf("topology_id:%s", e.TopologyID),
+					fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
 				}, 0)
 		},
 
 		TopologyClosed: func(e *event.TopologyClosedEvent) {
 			_ = statsdClient.Incr("topology_closed_event",
 				[]string{
-					fmt.Sprintf("topology_id:%s", e.TopologyID),
+					fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
 				}, 0)
 		},
 	}
