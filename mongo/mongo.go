@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -46,11 +44,6 @@ func extractTopology(c *mongo.Client) *topology.Topology {
 	d := e.FieldByName("deployment")
 	d = reflect.NewAt(d.Type(), unsafe.Pointer(d.UnsafeAddr())).Elem() // #nosec G103
 	return d.Interface().(*topology.Topology)
-}
-
-func envVarIsTrue(envVar string) bool {
-	return os.Getenv(envVar) == "1" ||
-		strings.ToLower(os.Getenv(envVar)) == "true"
 }
 
 func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, ping bool) (*Mongo, error) {

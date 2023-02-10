@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/coinbase/mongobetween/util"
 	"go.mongodb.org/mongo-driver/event"
 	"os"
 	"regexp"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/coinbase/mongobetween/mongo"
 	"github.com/coinbase/mongobetween/proxy"
+	"github.com/coinbase/mongobetween/util"
 )
 
 const usernamePlaceholder = "_"
@@ -250,11 +250,9 @@ func clientOptions(uri, username, password string) (string, *options.ClientOptio
 }
 
 func initMonitoring(opts *options.ClientOptions, statsd *statsd.Client, logger *zap.Logger, enableSdamMetrics bool, enableSdamLogging bool) *options.ClientOptions {
-	// set up monitors
+	// set up monitors for Pool and Server(SDAM)
 	opts = opts.SetPoolMonitor(poolMonitor(statsd))
-
 	opts = opts.SetServerMonitor(serverMonitoring(logger, statsd, enableSdamMetrics, enableSdamLogging))
-
 	return opts
 }
 
@@ -327,7 +325,6 @@ func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
 func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client, enableSdamMetrics bool, enableSdamLogging bool) *event.ServerMonitor {
 
 	return &event.ServerMonitor{
-
 		ServerOpening: func(e *event.ServerOpeningEvent) {
 			if enableSdamMetrics == true {
 				_ = statsdClient.Incr("server_opening_event",
