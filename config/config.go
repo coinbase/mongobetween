@@ -5,12 +5,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"go.mongodb.org/mongo-driver/event"
 	"os"
 	"regexp"
 	"strings"
 
 	"github.com/DataDog/datadog-go/statsd"
+	"go.mongodb.org/mongo-driver/event"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 	"go.uber.org/zap"
