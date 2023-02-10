@@ -26,16 +26,19 @@ const defaultStatsdAddress = "localhost:8125"
 
 var validNetworks = []string{"tcp", "tcp4", "tcp6", "unix", "unixpacket"}
 
+var newStatsdClientInit = newStatsdClient
+
 type Config struct {
-	network string
-	unlink  bool
-	ping    bool
-	pretty  bool
-	clients []client
-	level   zapcore.Level
-	dynamic string
-	logger  *zap.Logger
-	statsd  *statsd.Client
+	network    string
+	unlink     bool
+	ping       bool
+	pretty     bool
+	clients    []client
+	level      zapcore.Level
+	dynamic    string
+	statsdaddr string
+	logger     *zap.Logger
+	statsd     *statsd.Client
 }
 
 type client struct {
@@ -171,7 +174,7 @@ func parseFlags() (*Config, error) {
 	}
 
 	loggerClient := newLogger(level, pretty)
-	statsdClient, err := statsd.New(stats, statsd.WithNamespace("mongobetween"))
+	statsdClient, err := newStatsdClientInit(stats)
 	if err != nil {
 		return nil, err
 	}
@@ -191,15 +194,16 @@ func parseFlags() (*Config, error) {
 	}
 
 	return &Config{
-		network: network,
-		unlink:  unlink,
-		ping:    ping,
-		pretty:  pretty,
-		clients: clients,
-		level:   level,
-		dynamic: dynamic,
-		logger:  loggerClient,
-		statsd:  statsdClient,
+		network:    network,
+		unlink:     unlink,
+		ping:       ping,
+		pretty:     pretty,
+		statsdaddr: stats,
+		clients:    clients,
+		level:      level,
+		dynamic:    dynamic,
+		logger:     loggerClient,
+		statsd:     statsdClient,
 	}, nil
 }
 
@@ -273,6 +277,10 @@ func uriWorkaround(uri, username string) string {
 	return uri
 }
 
+func newStatsdClient(statsAddress string) (*statsd.Client, error) {
+	return statsd.New(statsAddress, statsd.WithNamespace("mongobetween"))
+}
+
 func newLogger(level zapcore.Level, pretty bool) *zap.Logger {
 	var c zap.Config
 	if pretty {
@@ -326,7 +334,7 @@ func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client, enableSdamMe
 
 	return &event.ServerMonitor{
 		ServerOpening: func(e *event.ServerOpeningEvent) {
-			if enableSdamMetrics == true {
+			if enableSdamMetrics {
 				_ = statsdClient.Incr("server_opening_event",
 					[]string{
 						fmt.Sprintf("address:%s", e.Address),
