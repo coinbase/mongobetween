@@ -32,6 +32,10 @@ Usage: mongobetween [OPTIONS] address1=uri1 [address2=uri2] ...
     	MongoDB username
   -dynamic string
     	File or URL to query for dynamic configuration
+  -enable-sdam-metrics
+        Enable SDAM(Server Discovery And Monitoring) metrics
+  -enable-sdam-logging
+        Enable SDAM(Server Discovery And Monitoring) logging
 ```
 
 TCP socket example:
@@ -76,33 +80,33 @@ This will disable writes to the proxy served from address `:12345`, and redirect
 ### TODO
 
 Current known missing features:
- - [X] Transaction server pinning
- - [X] Different cursors on separate servers with the same cursor ID value
+- [X] Transaction server pinning
+- [X] Different cursors on separate servers with the same cursor ID value
 
 
 ### Statsd
 `mongobetween` supports reporting health metrics to a local statsd sidecar, using the [Datadog Go library](github.com/DataDog/datadog-go). By default it reports to `localhost:8125`. The following metrics are reported:
- - `mongobetween.handle_message` (Timing) - end-to-end time handling an incoming message from the application
- - `mongobetween.round_trip` (Timing) - round trip time sending a request and receiving a response from MongoDB
- - `mongobetween.request_size` (Distribution) - request size to MongoDB
- - `mongobetween.response_size` (Distribution) - response size from MongoDB
- - `mongobetween.open_connections` (Gauge) - number of open connections between the proxy and the application
- - `mongobetween.connection_opened` (Counter) - connection opened with the application
- - `mongobetween.connection_closed` (Counter) - connection closed with the application
- - `mongobetween.cursors` (Gauge) - number of open cursors being tracked (for cursor -> server mapping)
- - `mongobetween.transactions` (Gauge) - number of transactions being tracked (for client sessions -> server mapping)****
- - `mongobetween.server_selection` (Timing) - Go driver server selection timing
- - `mongobetween.checkout_connection` (Timing) - Go driver connection checkout timing
- - `mongobetween.pool.checked_out_connections` (Gauge) - number of connections checked out from the Go driver connection pool
- - `mongobetween.pool.open_connections` (Gauge) - number of open connections from the Go driver to MongoDB
- - `mongobetween.pool_event.connection_closed` (Counter) - Go driver connection closed
- - `mongobetween.pool_event.connection_pool_created` (Counter) - Go driver connection pool created
- - `mongobetween.pool_event.connection_created` (Counter) - Go driver connection created
- - `mongobetween.pool_event.connection_check_out_failed` (Counter) - Go driver connection check out failed
- - `mongobetween.pool_event.connection_checked_out` (Counter) - Go driver connection checked out
- - `mongobetween.pool_event.connection_checked_in` (Counter) - Go driver connection checked in
- - `mongobetween.pool_event.connection_pool_cleared` (Counter) - Go driver connection pool cleared
- - `mongobetween.pool_event.connection_pool_closed` (Counter) - Go driver connection pool closed
+- `mongobetween.handle_message` (Timing) - end-to-end time handling an incoming message from the application
+- `mongobetween.round_trip` (Timing) - round trip time sending a request and receiving a response from MongoDB
+- `mongobetween.request_size` (Distribution) - request size to MongoDB
+- `mongobetween.response_size` (Distribution) - response size from MongoDB
+- `mongobetween.open_connections` (Gauge) - number of open connections between the proxy and the application
+- `mongobetween.connection_opened` (Counter) - connection opened with the application
+- `mongobetween.connection_closed` (Counter) - connection closed with the application
+- `mongobetween.cursors` (Gauge) - number of open cursors being tracked (for cursor -> server mapping)
+- `mongobetween.transactions` (Gauge) - number of transactions being tracked (for client sessions -> server mapping)****
+- `mongobetween.server_selection` (Timing) - Go driver server selection timing
+- `mongobetween.checkout_connection` (Timing) - Go driver connection checkout timing
+- `mongobetween.pool.checked_out_connections` (Gauge) - number of connections checked out from the Go driver connection pool
+- `mongobetween.pool.open_connections` (Gauge) - number of open connections from the Go driver to MongoDB
+- `mongobetween.pool_event.connection_closed` (Counter) - Go driver connection closed
+- `mongobetween.pool_event.connection_pool_created` (Counter) - Go driver connection pool created
+- `mongobetween.pool_event.connection_created` (Counter) - Go driver connection created
+- `mongobetween.pool_event.connection_check_out_failed` (Counter) - Go driver connection check out failed
+- `mongobetween.pool_event.connection_checked_out` (Counter) - Go driver connection checked out
+- `mongobetween.pool_event.connection_checked_in` (Counter) - Go driver connection checked in
+- `mongobetween.pool_event.connection_pool_cleared` (Counter) - Go driver connection pool cleared
+- `mongobetween.pool_event.connection_pool_closed` (Counter) - Go driver connection pool closed
 
 ### Background
 `mongobetween` was built to address a connection storm issue between a high scale Rails app and MongoDB (see [blog post](https://blog.coinbase.com/scaling-connections-with-ruby-and-mongodb-99204dbf8857)). Due to Ruby MRI's global interpreter lock, multi-threaded web applications don't utilize multiple CPU cores. To achieve better CPU utilization, Puma is run with multiple workers (processes), each of which need a separate MongoDB connection pool. This leads to a large number of connections to MongoDB, sometimes exceeding MongoDB's upstream connection limit of 128k connections.

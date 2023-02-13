@@ -2,11 +2,27 @@ package config
 
 import (
 	"flag"
+	"github.com/DataDog/datadog-go/statsd"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap/zapcore"
 	"os"
 	"testing"
+	"time"
 )
+
+type statsdWriterWrapper struct{}
+
+func (statsdWriterWrapper) SetWriteTimeout(time.Duration) error {
+	return nil
+}
+
+func (statsdWriterWrapper) Close() error {
+	return nil
+}
+
+func (statsdWriterWrapper) Write(p []byte) (n int, err error) {
+	return 0, nil
+}
 
 func resetFlags() {
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
@@ -29,12 +45,21 @@ func TestParseFlags(t *testing.T) {
 		"/tmp/mongo2.sock=mongodb://localhost:27128/database?maxpoolsize=10&label=cluster2",
 	}
 
+	//mock out newStatsdClient
+	originalFunc := newStatsdClientInit
+	newStatsdClientInit = func(stats string) (*statsd.Client, error) {
+		return statsd.NewWithWriter(statsdWriterWrapper{})
+	}
+	defer func() {
+		newStatsdClientInit = originalFunc
+	}()
+
 	resetFlags()
 	c, err := parseFlags()
 	assert.Nil(t, err)
 
 	assert.True(t, c.pretty)
-	assert.Equal(t, "statsd:1234", c.statsd)
+	assert.Equal(t, "statsd:1234", c.statsdaddr)
 	assert.Equal(t, zapcore.DebugLevel, c.LogLevel())
 	assert.Equal(t, "unix", c.network)
 	assert.True(t, c.ping)
