@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/DataDog/datadog-go/statsd"
+	"go.mongodb.org/mongo-driver/event"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 	"go.uber.org/zap"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/coinbase/mongobetween/mongo"
 	"github.com/coinbase/mongobetween/proxy"
+	"github.com/coinbase/mongobetween/util"
 )
 
 const usernamePlaceholder = "_"
@@ -23,15 +26,19 @@ const defaultStatsdAddress = "localhost:8125"
 
 var validNetworks = []string{"tcp", "tcp4", "tcp6", "unix", "unixpacket"}
 
+var newStatsdClientInit = newStatsdClient
+
 type Config struct {
-	network string
-	unlink  bool
-	ping    bool
-	pretty  bool
-	clients []client
-	statsd  string
-	level   zapcore.Level
-	dynamic string
+	network    string
+	unlink     bool
+	ping       bool
+	pretty     bool
+	clients    []client
+	level      zapcore.Level
+	dynamic    string
+	statsdaddr string
+	logger     *zap.Logger
+	statsd     *statsd.Client
 }
 
 type client struct {
@@ -58,12 +65,15 @@ func (c *Config) Pretty() bool {
 	return c.pretty
 }
 
-func (c *Config) Proxies(log *zap.Logger) (proxies []*proxy.Proxy, err error) {
-	sd, err := statsd.New(c.statsd, statsd.WithNamespace("mongobetween"))
-	if err != nil {
-		return nil, err
-	}
+func (c *Config) Logger() *zap.Logger {
+	return c.logger
+}
 
+func (c *Config) Statsd() *statsd.Client {
+	return c.statsd
+}
+
+func (c *Config) Proxies(log *zap.Logger) (proxies []*proxy.Proxy, err error) {
 	d, err := proxy.NewDynamic(c.dynamic, log)
 	if err != nil {
 		return nil, err
@@ -71,7 +81,7 @@ func (c *Config) Proxies(log *zap.Logger) (proxies []*proxy.Proxy, err error) {
 
 	mongos := make(map[string]*mongo.Mongo)
 	for _, client := range c.clients {
-		m, err := mongo.Connect(log, sd, client.opts, c.ping)
+		m, err := mongo.Connect(log, c.statsd, client.opts, c.ping)
 		if err != nil {
 			return nil, err
 		}
@@ -82,7 +92,7 @@ func (c *Config) Proxies(log *zap.Logger) (proxies []*proxy.Proxy, err error) {
 	}
 
 	for _, client := range c.clients {
-		p, err := proxy.NewProxy(log, sd, client.label, c.network, client.address, c.unlink, mongoLookup, d)
+		p, err := proxy.NewProxy(log, c.statsd, client.label, c.network, client.address, c.unlink, mongoLookup, d)
 		if err != nil {
 			return nil, err
 		}
@@ -106,7 +116,7 @@ func parseFlags() (*Config, error) {
 		flag.PrintDefaults()
 	}
 
-	var unlink, ping, pretty bool
+	var unlink, ping, pretty, enableSdamMetrics, enableSdamLogging bool
 	var network, username, password, stats, loglevel, dynamic string
 	flag.StringVar(&network, "network", "tcp4", "One of: tcp, tcp4, tcp6, unix or unixpacket")
 	flag.StringVar(&username, "username", "", "MongoDB username")
@@ -117,6 +127,8 @@ func parseFlags() (*Config, error) {
 	flag.BoolVar(&pretty, "pretty", false, "Pretty print logging")
 	flag.StringVar(&loglevel, "loglevel", "info", "One of: debug, info, warn, error, dpanic, panic, fatal")
 	flag.StringVar(&dynamic, "dynamic", "", "File or URL to query for dynamic configuration")
+	flag.BoolVar(&enableSdamMetrics, "enable-sdam-metrics", false, "Enable SDAM(Server Discovery And Monitoring) metrics")
+	flag.BoolVar(&enableSdamLogging, "enable-sdam-logging", false, "Enable SDAM(Server Discovery And Monitoring) logging")
 
 	flag.Parse()
 
@@ -161,12 +173,19 @@ func parseFlags() (*Config, error) {
 		return nil, errors.New("missing address=uri(s)")
 	}
 
+	loggerClient := newLogger(level, pretty)
+	statsdClient, err := newStatsdClientInit(stats)
+	if err != nil {
+		return nil, err
+	}
+
 	var clients []client
 	for address, uri := range addressMap {
 		label, opts, err := clientOptions(uri, username, password)
 		if err != nil {
 			return nil, err
 		}
+		initMonitoring(opts, statsdClient, loggerClient, enableSdamMetrics, enableSdamLogging)
 		clients = append(clients, client{
 			address: address,
 			label:   label,
@@ -175,14 +194,16 @@ func parseFlags() (*Config, error) {
 	}
 
 	return &Config{
-		network: network,
-		unlink:  unlink,
-		ping:    ping,
-		pretty:  pretty,
-		clients: clients,
-		statsd:  stats,
-		level:   level,
-		dynamic: dynamic,
+		network:    network,
+		unlink:     unlink,
+		ping:       ping,
+		pretty:     pretty,
+		statsdaddr: stats,
+		clients:    clients,
+		level:      level,
+		dynamic:    dynamic,
+		logger:     loggerClient,
+		statsd:     statsdClient,
 	}, nil
 }
 
@@ -232,6 +253,13 @@ func clientOptions(uri, username, password string) (string, *options.ClientOptio
 	return label, opts, nil
 }
 
+func initMonitoring(opts *options.ClientOptions, statsd *statsd.Client, logger *zap.Logger, enableSdamMetrics bool, enableSdamLogging bool) *options.ClientOptions {
+	// set up monitors for Pool and Server(SDAM)
+	opts = opts.SetPoolMonitor(poolMonitor(statsd))
+	opts = opts.SetServerMonitor(serverMonitoring(logger, statsd, enableSdamMetrics, enableSdamLogging))
+	return opts
+}
+
 func uriWorkaround(uri, username string) string {
 	// Workaround for a feature in the Mongo driver URI parsing where you can't set a URI
 	// without setting the username ("error parsing uri: authsource without username is
@@ -247,4 +275,151 @@ func uriWorkaround(uri, username string) string {
 		}
 	}
 	return uri
+}
+
+func newStatsdClient(statsAddress string) (*statsd.Client, error) {
+	return statsd.New(statsAddress, statsd.WithNamespace("mongobetween"))
+}
+
+func newLogger(level zapcore.Level, pretty bool) *zap.Logger {
+	var c zap.Config
+	if pretty {
+		c = zap.NewDevelopmentConfig()
+		c.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	} else {
+		c = zap.NewProductionConfig()
+	}
+
+	c.EncoderConfig.MessageKey = "message"
+	c.Level.SetLevel(level)
+
+	log, err := c.Build(zap.AddStacktrace(zap.FatalLevel))
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+
+	return log
+}
+
+func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
+	checkedOut, checkedIn := util.StatsdBackgroundGauge(sd, "pool.checked_out_connections", []string{})
+	opened, closed := util.StatsdBackgroundGauge(sd, "pool.open_connections", []string{})
+
+	return &event.PoolMonitor{
+		Event: func(e *event.PoolEvent) {
+			snake := strings.ToLower(regexp.MustCompile("([a-z0-9])([A-Z])").ReplaceAllString(e.Type, "${1}_${2}"))
+			name := fmt.Sprintf("pool_event.%s", snake)
+			tags := []string{
+				fmt.Sprintf("address:%s", e.Address),
+				fmt.Sprintf("reason:%s", e.Reason),
+			}
+			switch e.Type {
+			case event.ConnectionCreated:
+				opened(name, tags)
+			case event.ConnectionClosed:
+				closed(name, tags)
+			case event.GetSucceeded:
+				checkedOut(name, tags)
+			case event.ConnectionReturned:
+				checkedIn(name, tags)
+			default:
+				_ = sd.Incr(name, tags, 1)
+			}
+		},
+	}
+}
+
+func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client, enableSdamMetrics bool, enableSdamLogging bool) *event.ServerMonitor {
+
+	return &event.ServerMonitor{
+		ServerOpening: func(e *event.ServerOpeningEvent) {
+			if enableSdamMetrics {
+				_ = statsdClient.Incr("server_opening_event",
+					[]string{
+						fmt.Sprintf("address:%s", e.Address),
+						fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
+					}, 0)
+			}
+		},
+
+		ServerClosed: func(e *event.ServerClosedEvent) {
+			if enableSdamMetrics {
+				_ = statsdClient.Incr("server_closed_event",
+					[]string{
+						fmt.Sprintf("address:%s", e.Address),
+						fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
+					}, 0)
+			}
+		},
+
+		ServerDescriptionChanged: func(e *event.ServerDescriptionChangedEvent) {
+			if enableSdamMetrics {
+				_ = statsdClient.Incr("server_description_changed_event",
+					[]string{
+						fmt.Sprintf("address:%s", e.Address),
+						fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
+					}, 0)
+			}
+
+			if enableSdamLogging {
+				var prevDMap map[string]interface{}
+				var newDMap map[string]interface{}
+
+				prevDescription, _ := json.Marshal(&e.PreviousDescription)
+				_ = json.Unmarshal(prevDescription, &prevDMap)
+				newDescription, _ := json.Marshal(e.NewDescription)
+				_ = json.Unmarshal(newDescription, &newDMap)
+
+				log.Info("ServerDescriptionChangedEvent detected. ",
+					zap.Any("address", e.Address),
+					zap.String("topologyId", e.TopologyID.Hex()),
+					zap.Any("prevDescription", prevDMap),
+					zap.Any("newDescription", newDMap),
+				)
+			}
+		},
+
+		TopologyDescriptionChanged: func(e *event.TopologyDescriptionChangedEvent) {
+			if enableSdamMetrics {
+				_ = statsdClient.Incr("topology_description_changed_event",
+					[]string{
+						fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
+					}, 0)
+			}
+			if enableSdamLogging {
+				var prevDMap map[string]interface{}
+				var newDMap map[string]interface{}
+
+				prevDescription, _ := json.Marshal(&e.PreviousDescription)
+				_ = json.Unmarshal(prevDescription, &prevDMap)
+				newDescription, _ := json.Marshal(e.NewDescription)
+				_ = json.Unmarshal(newDescription, &newDMap)
+
+				log.Info("TopologyDescriptionChangedEvent detected. ",
+					zap.String("topologyId", e.TopologyID.Hex()),
+					zap.Any("prevDescription", prevDMap),
+					zap.Any("newDescription", newDMap),
+				)
+			}
+		},
+
+		TopologyOpening: func(e *event.TopologyOpeningEvent) {
+			if enableSdamMetrics {
+				_ = statsdClient.Incr("topology_opening_event",
+					[]string{
+						fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
+					}, 0)
+			}
+		},
+
+		TopologyClosed: func(e *event.TopologyClosedEvent) {
+			if enableSdamMetrics {
+				_ = statsdClient.Incr("topology_closed_event",
+					[]string{
+						fmt.Sprintf("topology_id:%s", e.TopologyID.Hex()),
+					}, 0)
+			}
+		},
+	}
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"go.uber.org/zap/zapcore"
 	"os"
 	"os/signal"
 	"sync"
@@ -16,33 +15,13 @@ import (
 
 func main() {
 	c := config.ParseFlags()
-	log := newLogger(c.LogLevel(), c.Pretty())
-	run(log, c)
+	run(c)
 }
 
-func newLogger(level zapcore.Level, pretty bool) *zap.Logger {
-	var c zap.Config
-	if pretty {
-		c = zap.NewDevelopmentConfig()
-		c.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	} else {
-		c = zap.NewProductionConfig()
-	}
+func run(config *config.Config) {
+	proxies, err := config.Proxies(config.Logger())
+	log := config.Logger()
 
-	c.EncoderConfig.MessageKey = "message"
-	c.Level.SetLevel(level)
-
-	log, err := c.Build(zap.AddStacktrace(zap.FatalLevel))
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
-		os.Exit(1)
-	}
-
-	return log
-}
-
-func run(log *zap.Logger, config *config.Config) {
-	proxies, err := config.Proxies(log)
 	if err != nil {
 		log.Fatal("Startup error", zap.Error(err))
 	}

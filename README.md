@@ -32,6 +32,10 @@ Usage: mongobetween [OPTIONS] address1=uri1 [address2=uri2] ...
     	MongoDB username
   -dynamic string
     	File or URL to query for dynamic configuration
+  -enable-sdam-metrics
+        Enable SDAM(Server Discovery And Monitoring) metrics
+  -enable-sdam-logging
+        Enable SDAM(Server Discovery And Monitoring) logging
 ```
 
 TCP socket example:

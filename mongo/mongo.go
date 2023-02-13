@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"net"
 	"reflect"
-	"regexp"
-	"strings"
 	"sync"
 	"time"
 	"unsafe"
 
 	"github.com/DataDog/datadog-go/statsd"
-	"go.mongodb.org/mongo-driver/event"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/address"
 	"go.mongodb.org/mongo-driver/mongo/description"
@@ -22,8 +19,6 @@ import (
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 	"go.uber.org/zap"
-
-	"github.com/coinbase/mongobetween/util"
 )
 
 const pingTimeout = 60 * time.Second
@@ -55,8 +50,6 @@ func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, pi
 	// timeout shouldn't be hit if ping == false, as Connect doesn't block the current goroutine
 	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
-
-	opts = opts.SetPoolMonitor(poolMonitor(sd))
 
 	var err error
 	log.Info("Connect")
@@ -92,34 +85,6 @@ func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, pi
 	go m.cacheMonitor()
 
 	return &m, nil
-}
-
-func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
-	checkedOut, checkedIn := util.StatsdBackgroundGauge(sd, "pool.checked_out_connections", []string{})
-	opened, closed := util.StatsdBackgroundGauge(sd, "pool.open_connections", []string{})
-
-	return &event.PoolMonitor{
-		Event: func(e *event.PoolEvent) {
-			snake := strings.ToLower(regexp.MustCompile("([a-z0-9])([A-Z])").ReplaceAllString(e.Type, "${1}_${2}"))
-			name := fmt.Sprintf("pool_event.%s", snake)
-			tags := []string{
-				fmt.Sprintf("address:%s", e.Address),
-				fmt.Sprintf("reason:%s", e.Reason),
-			}
-			switch e.Type {
-			case event.ConnectionCreated:
-				opened(name, tags)
-			case event.ConnectionClosed:
-				closed(name, tags)
-			case event.GetSucceeded:
-				checkedOut(name, tags)
-			case event.ConnectionReturned:
-				checkedIn(name, tags)
-			default:
-				_ = sd.Incr(name, tags, 1)
-			}
-		},
-	}
 }
 
 func (m *Mongo) Description() description.Topology {
