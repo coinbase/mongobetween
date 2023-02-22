@@ -77,11 +77,9 @@ Passing a file or URL as the `-dynamic` argument will allow somewhat dynamic con
 
 This will disable writes to the proxy served from address `:12345`, and redirect any traffic sent to `/var/tmp/cluster1.sock` to the proxy running on `/var/tmp/cluster2.sock`. This is useful for minimal-downtime migrations between clusters.
 
-### TODO
-
-Current known missing features:
- - [X] Transaction server pinning
- - [X] Different cursors on separate servers with the same cursor ID value
+### Supported Features
+ - Transaction server pinning
+ - Different cursors on separate servers with the same cursor ID value
 
 
 ### Statsd
