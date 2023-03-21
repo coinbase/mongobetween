@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/coinbase/mongobetween/config"
+	"github.com/coinbase/mongobetween/util"
 )
 
 func main() {
@@ -21,9 +22,15 @@ func main() {
 func run(config *config.Config) {
 	proxies, err := config.Proxies(config.Logger())
 	log := config.Logger()
-
 	if err != nil {
 		log.Fatal("Startup error", zap.Error(err))
+	}
+
+	profiler := util.StartDatadogProfiler(log)
+	if profiler != nil {
+		defer func() {
+			profiler.Stop()
+		}()
 	}
 
 	var wg sync.WaitGroup
