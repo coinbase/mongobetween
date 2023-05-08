@@ -11,6 +11,7 @@ import (
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
@@ -25,6 +26,7 @@ var (
 )
 
 type Trainer struct {
+	ID   primitive.ObjectID `bson:"_id"`
 	Name string
 	Age  int
 	City string
@@ -43,9 +45,9 @@ func TestProxy(t *testing.T) {
 	_, err := collection.DeleteMany(ctx, bson.D{{}})
 	assert.Nil(t, err)
 
-	ash := Trainer{"Ash", 10, "Pallet Town"}
-	misty := Trainer{"Misty", 10, "Cerulean City"}
-	brock := Trainer{"Brock", 15, "Pewter City"}
+	ash := Trainer{primitive.NewObjectID(), "Ash", 10, "Pallet Town"}
+	misty := Trainer{primitive.NewObjectID(), "Misty", 10, "Cerulean City"}
+	brock := Trainer{primitive.NewObjectID(), "Brock", 15, "Pewter City"}
 
 	_, err = collection.InsertOne(ctx, ash)
 	assert.Nil(t, err)
@@ -117,13 +119,14 @@ func TestProxyUnacknowledgedWrites(t *testing.T) {
 	_, err = setupCollection.DeleteMany(ctx, bson.D{})
 	assert.Nil(t, err)
 
-	ash := Trainer{"Ash", 10, "Pallet Town"}
+	ash := Trainer{primitive.NewObjectID(), "Ash", 10, "Pallet Town"}
 	_, err = unackCollection.InsertOne(ctx, ash)
 	assert.Equal(t, mongo.ErrUnacknowledgedWrite, err) // driver returns a special error value for w=0 writes
 
 	// Insert a document using the setup collection and ensure document count is 2. Doing this ensures that the proxy
 	// did not crash while processing the unacknowledged write.
-	_, err = setupCollection.InsertOne(ctx, ash)
+	misty := Trainer{primitive.NewObjectID(), "Misty", 10, "Cerulean City"}
+	_, err = setupCollection.InsertOne(ctx, misty)
 	assert.Nil(t, err)
 
 	count, err := setupCollection.CountDocuments(ctx, bson.D{})
@@ -204,9 +207,9 @@ func TestProxyWithDynamicConfig(t *testing.T) {
 		assert.Nil(t, err)
 	}
 
-	ash := Trainer{"Ash", 10, "Pallet Town"}
-	misty := Trainer{"Misty", 10, "Cerulean City"}
-	brock := Trainer{"Brock", 15, "Pewter City"}
+	ash := Trainer{primitive.NewObjectID(), "Ash", 10, "Pallet Town"}
+	misty := Trainer{primitive.NewObjectID(), "Misty", 10, "Cerulean City"}
+	brock := Trainer{primitive.NewObjectID(), "Brock", 15, "Pewter City"}
 
 	// expect write error
 	_, err = clients[0].Database("test").Collection(collection).InsertOne(ctx, ash)

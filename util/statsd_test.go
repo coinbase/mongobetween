@@ -1,8 +1,8 @@
 package util_test
 
 import (
-	"github.com/coinbase/mongobetween/util"
 	"github.com/DataDog/datadog-go/statsd"
+	"github.com/coinbase/mongobetween/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"sync"

@@ -154,6 +154,7 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	requestCursorID, _ := msg.Op.CursorID()
 	requestCommand, collection := msg.Op.CommandAndCollection()
 	transactionDetails := msg.Op.TransactionDetails()
+
 	server, err := m.selectServer(requestCursorID, collection, transactionDetails)
 	if err != nil {
 		return nil, err
@@ -228,6 +229,38 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		Wm: wm,
 		Op: op,
 	}, nil
+}
+
+func (m *Mongo) RoundTripWithDualCursor(msg *Message, tags []string, originalCursorID int64) (*Message, error) {
+	requestCursorID, _ := msg.Op.CursorID()
+	_, collection := msg.Op.CommandAndCollection()
+	if dualCursorID, ok := m.cursors.peekDualCursorID(requestCursorID, collection); ok {
+		requestCursorID = dualCursorID
+	}
+
+	// Rewrite message with new cursor ID if doing a getMore
+	if opMsg, ok := (msg.Op).(*opMsg); ok {
+		encodedMsg := opMsg.EncodeWithCursorID(msg.Op.RequestID(), requestCursorID, true)
+		decodedMsg, err := Decode(encodedMsg)
+		if err == nil {
+			msg = &Message{
+				Wm: encodedMsg,
+				Op: decodedMsg,
+			}
+		}
+	}
+
+	dualMsg, err := m.RoundTrip(msg, tags)
+
+	if responseCursorID, ok := dualMsg.Op.CursorID(); ok {
+		if responseCursorID != 0 {
+			m.cursors.addDualCursorID(originalCursorID, collection, responseCursorID)
+		} else if requestCursorID != 0 {
+			m.cursors.removeDualCursorID(requestCursorID, collection)
+		}
+	}
+
+	return dualMsg, err
 }
 
 func (m *Mongo) selectServer(requestCursorID int64, collection string, transDetails *TransactionDetails) (server driver.Server, err error) {

@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"bytes"
+	"crypto/rand"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"runtime/debug"
 	"time"
@@ -67,15 +70,15 @@ func (c *connection) processMessages() {
 func (c *connection) handleMessage() (err error) {
 	var tags []string
 
-	defer func(start time.Time) {
-		tags := append(tags, fmt.Sprintf("success:%v", err == nil))
-		_ = c.statsd.Timing("handle_message", time.Since(start), tags, 1)
-	}(time.Now())
-
 	var wm []byte
 	if wm, err = c.readWireMessage(); err != nil {
 		return
 	}
+
+	defer func(start time.Time) {
+		tags := append(tags, fmt.Sprintf("success:%v", err == nil))
+		_ = c.statsd.Timing("handle_message", time.Since(start), tags, 1)
+	}(time.Now())
 
 	var op mongo.Operation
 	if op, err = mongo.Decode(wm); err != nil {
@@ -106,6 +109,11 @@ func (c *connection) handleMessage() (err error) {
 		Wm: wm,
 		Op: op,
 	}
+	reqCopy, err := mongo.CopyMessage(req)
+	if err != nil {
+		return
+	}
+
 	var res *mongo.Message
 	if res, err = c.roundTrip(req, isMaster, tags); err != nil {
 		return
@@ -124,6 +132,8 @@ func (c *connection) handleMessage() (err error) {
 	if _, err = c.conn.Write(res.Wm); err != nil {
 		return
 	}
+
+	c.roundTripWithDualCursor(reqCopy, res, isMaster, tags)
 
 	c.log.Debug(
 		"Response",
@@ -183,4 +193,56 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 	}
 
 	return client.RoundTrip(msg, tags)
+}
+
+func (c *connection) roundTripWithDualCursor(msg *mongo.Message, primaryRes *mongo.Message, isMaster bool, tags []string) {
+	dynamic := c.dynamic.ForAddress(c.address)
+	if dynamic.DualReadFrom != "" {
+		command, collection := msg.Op.CommandAndCollection()
+
+		bigint, err := rand.Int(rand.Reader, big.NewInt(100))
+		if err != nil {
+			bigint = big.NewInt(100)
+		}
+		if mongo.IsRead(command) && int(bigint.Int64()) <= dynamic.DualReadSamplePercent {
+			dualReadClient := c.mongoLookup(dynamic.DualReadFrom)
+
+			var dualReadMessage *mongo.Message
+			var err error
+			if isMaster {
+				requestID := msg.Op.RequestID()
+				c.log.Debug("Non-proxied ismaster response", zap.Int32("request_id", requestID))
+				_, _ = mongo.IsMasterResponse(requestID, dualReadClient.Description().Kind)
+				// Don't compare isMaster queries
+				return
+			}
+
+			primaryCursor, _ := primaryRes.Op.CursorID()
+			tags = append(tags, "dual_read:true")
+			dualReadMessage, err = dualReadClient.RoundTripWithDualCursor(msg, tags, primaryCursor)
+
+			if err != nil {
+				c.log.Error("Error dual reading: ", zap.Error(err))
+			}
+
+			c.log.Sugar().Infof("Query run on primary: %+v\n", msg.Op)
+			c.log.Sugar().Infof("Response on primary: %+v\n", primaryRes.Op)
+			primSection, ok := mongo.MustOpMsgCursorSection(primaryRes.Op)
+			if !ok {
+				c.log.Sugar().Infof("Query run that errored on primary: %+v\n", msg.Op)
+				c.log.Sugar().Infof("Response that errored on primary: %+v\n", primaryRes.Op)
+				return
+			}
+			dualSection, ok := mongo.MustOpMsgCursorSection(dualReadMessage.Op)
+			if !ok {
+				c.log.Sugar().Infof("Query run that errored on secondary: %+v\n", msg.Op)
+				c.log.Sugar().Infof("Response that errored on secondary: %+v\n", dualReadMessage.Op)
+				return
+			}
+
+			match := bytes.Equal(primSection, dualSection)
+			// TODO: add timing to compare primary and secondary performance
+			_ = c.statsd.Incr("dual_read_result", []string{fmt.Sprintf("collection:%s,match:%t", collection, match)}, 1)
+		}
+	}
 }
