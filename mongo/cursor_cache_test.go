@@ -2,10 +2,11 @@ package mongo
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
-	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/x/mongo/driver"
 )
 
 type mockServer struct {
@@ -22,6 +23,10 @@ func (m *mockServer) MinRTT() time.Duration {
 
 func (m *mockServer) RTT90() time.Duration {
 	return time.Duration(0)
+}
+
+func (m *mockServer) RTTMonitor() driver.RTTMonitor {
+	return nil
 }
 
 func TestCount(t *testing.T) {

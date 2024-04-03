@@ -2,10 +2,11 @@ package mongo
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
-	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"go.mongodb.org/mongo-driver/x/mongo/driver"
 )
 
 type transactionMockServer struct {
@@ -22,6 +23,10 @@ func (m *transactionMockServer) RTT90() time.Duration {
 
 func (m *transactionMockServer) Connection(context.Context) (driver.Connection, error) {
 	return nil, nil
+}
+
+func (m *transactionMockServer) RTTMonitor() driver.RTTMonitor {
+	return nil
 }
 
 func TestTransactionCacheCount(t *testing.T) {
