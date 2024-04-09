@@ -193,17 +193,6 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		fmt.Sprintf("address:%s", conn.Address().String()),
 	)
 
-	defer func() {
-		if (requestCommand == AbortTransaction || requestCommand == CommitTransaction) && requestCursorID == 0 {
-			// Close the connection if the cursor has been exhuasted, there is no
-			// cursor pinned to a connection, or if the transaction has ended.
-			err := conn.Close()
-			if err != nil {
-				m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
-			}
-		}
-	}()
-
 	// see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L430-L432
 	var errorProcessor driver.ErrorProcessor
 	if server != nil {
@@ -245,6 +234,11 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 			// non-zero, then we've exhausted the cursor and so should close and unpin
 			// the connection.
 			m.cursors.remove(requestCursorID, collection)
+
+			err := conn.Close()
+			if err != nil {
+				m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
+			}
 		}
 	}
 
@@ -255,6 +249,11 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 			if requestCommand == AbortTransaction || requestCommand == CommitTransaction {
 				m.log.Debug("Removing transaction from the cache", zap.String("reqCommand", string(requestCommand)))
 				m.transactions.remove(txnDetails.LsID)
+
+				err := conn.Close()
+				if err != nil {
+					m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
+				}
 			}
 		}
 	}
