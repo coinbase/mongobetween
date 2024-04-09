@@ -29,7 +29,7 @@ func (c *cursorCache) count() int {
 	return c.c.Len()
 }
 
-func (c *cursorCache) peek(cursorID int64, collection string) (server driver.Connection, ok bool) {
+func (c *cursorCache) peek(cursorID int64, collection string) (conn driver.Connection, ok bool) {
 
 	v, ok := c.c.Peek(buildKey(cursorID, collection))
 	if !ok {
