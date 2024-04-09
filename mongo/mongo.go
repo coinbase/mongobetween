@@ -187,8 +187,8 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 
 	defer func() {
 		if requestCursorID == 0 {
-			// Close the connection if the cursor has been exhuasted / there is no
-			// cursor pinned to a connection
+			// Close the connection if the cursor has been exhuasted or there is no
+			// cursor pinned to a connection.
 			err := conn.Close()
 			if err != nil {
 				m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
@@ -233,9 +233,9 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		if responseCursorID != 0 {
 			m.cursors.add(responseCursorID, collection, conn)
 		} else if requestCursorID != 0 {
-			// If the response cursor id is 0 and the request cursor id is non-zero,
-			// then we've exhausted the cursor and so should close and unpin the
-			// connection.
+			// If the response cursor id is zero and the request cursor id is
+			// non-zero, then we've exhausted the cursor and so should close and unpin
+			// the connection.
 			m.cursors.remove(requestCursorID, collection)
 		}
 	}
