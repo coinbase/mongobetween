@@ -29,17 +29,17 @@ func (c *cursorCache) count() int {
 	return c.c.Len()
 }
 
-func (c *cursorCache) peek(cursorID int64, collection string) (server driver.Server, ok bool) {
+func (c *cursorCache) peek(cursorID int64, collection string) (server driver.Connection, ok bool) {
 
 	v, ok := c.c.Peek(buildKey(cursorID, collection))
 	if !ok {
 		return
 	}
-	return v.(driver.Server), true
+	return v.(driver.Connection), true
 }
 
-func (c *cursorCache) add(cursorID int64, collection string, server driver.Server) {
-	c.c.Add(buildKey(cursorID, collection), server)
+func (c *cursorCache) add(cursorID int64, collection string, conn driver.Connection) {
+	c.c.Add(buildKey(cursorID, collection), conn)
 }
 
 func (c *cursorCache) remove(cursorID int64, collection string) {
