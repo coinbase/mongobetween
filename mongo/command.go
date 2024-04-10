@@ -10,7 +10,7 @@ const (
 	Unknown           Command = "unknown"
 	AbortTransaction  Command = "abortTransaction"
 	Aggregate         Command = "aggregate"
-	CommitTransaction Command = "commandTransaction"
+	CommitTransaction Command = "commitTransaction"
 	Count             Command = "count"
 	CreateIndexes     Command = "createIndexes"
 	Delete            Command = "delete"
