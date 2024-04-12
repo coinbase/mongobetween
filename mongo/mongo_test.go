@@ -125,7 +125,7 @@ func TestRoundTripProcessError(t *testing.T) {
 func TestMongo_RoundTrip_Cursor(t *testing.T) {
 	const uri = "mongodb://127.0.0.1:8001/?loadBalanced=true"
 
-	// Create a driver client to perform driver operations during the test.
+	// Create a driver client to load test data.
 	opts := options.Client().ApplyURI(uri).SetLoadBalanced(true)
 
 	clientd, err := mongod.Connect(context.Background(), opts)
@@ -156,10 +156,8 @@ func TestMongo_RoundTrip_Cursor(t *testing.T) {
 	clientb, err := mongo.Connect(zap.L(), sd, clientOptions, false)
 	assert.Nil(t, err)
 
-	var cursorID int64
-
-	// Create a command that will respond with a non-exhausted cursor. Then
-	// extract the cursor's id from the server response.
+	// Create an OP_MSG command that will respond with a non-exhausted cursor.
+	// Then extract the cursor's id from the server response.
 	cmdb, err := bson.Marshal(bson.D{
 		{"find", "simple"}, // Collection name
 		{"$db", "cursor"},  // Database
@@ -187,23 +185,24 @@ func TestMongo_RoundTrip_Cursor(t *testing.T) {
 	cursorIDRaw, err := cursorDoc.LookupErr("id")
 	assert.NoError(t, err, "failed to lookup cursorID")
 
-	cursorID, ok = cursorIDRaw.Int64OK()
+	cursorID, ok := cursorIDRaw.Int64OK()
 	assert.True(t, ok, "cursorID was not i64")
 
+	// Create an OP_MSG "getMore" command.
+	getMoreb, err := bson.Marshal(bson.D{
+		{"getMore", cursorID},
+		{"$db", "cursor"},
+		{"collection", "simple"},
+		{"batchSize", 1},
+	})
+	assert.NoError(t, err)
+
+	getMoreCmd := mongo.NewOpMsg(getMoreb, nil)
+
 	wg := sync.WaitGroup{}
-	wg.Add(9)
+	wg.Add(9) // Ensure every round trip completes
 
 	for i := 0; i < 9; i++ {
-		getMoreb, err := bson.Marshal(bson.D{
-			{"getMore", cursorID},
-			{"$db", "cursor"},
-			{"collection", "simple"},
-			{"batchSize", 1},
-		})
-		assert.NoError(t, err)
-
-		getMoreCmd := mongo.NewOpMsg(getMoreb, nil)
-
 		go func() {
 			defer wg.Done()
 
