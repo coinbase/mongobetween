@@ -133,27 +133,74 @@ func TestMongo_RoundTrip_NoCursorOrTxn(t *testing.T) {
 	clientb, err := mongo.Connect(zap.L(), sd, clientOptions, false)
 	assert.Nil(t, err)
 
-	// Create an OP_MSG command that will respond with a non-exhausted cursor.
-	// Then extract the cursor's id from the server response.
-	cmdb, err := bson.Marshal(bson.D{
-		{"insert", "coll"}, // Collection name
-		{"$db", "simple"},  // database
-		{"ordered", true},
+	// Create a driver client for cleanup
+	t.Run("write", func(t *testing.T) {
+		t.Cleanup(func() {
+			clientd, err := mongod.Connect(context.Background(), clientOptions)
+			assert.Nil(t, err)
+
+			defer clientd.Disconnect(context.Background())
+
+			err = clientd.Database("simple").Collection("coll").Drop(context.Background())
+			assert.Nil(t, err)
+		})
+
+		// Create an OP_MSG command that will respond with a non-exhausted cursor.
+		// Then extract the cursor's id from the server response.
+		cmdb, err := bson.Marshal(bson.D{
+			{"insert", "coll"}, // Collection name
+			{"$db", "simple"},  // database
+			{"ordered", true},
+		})
+
+		assert.NoError(t, err)
+
+		docByts, err := bson.Marshal(bson.D{{"x", 1}})
+		cmd := mongo.NewOpMsg(cmdb, []bsoncore.Document{docByts})
+
+		_, err = clientb.RoundTrip(cmd, []string{})
+		assert.Nil(t, err)
+
+		for i := 0; i < 50; i++ {
+			// Put msg on the wire to get cursorID and first batch.
+			_, err := clientb.RoundTrip(cmd, []string{})
+			assert.Nil(t, err)
+		}
 	})
 
-	assert.NoError(t, err)
+	t.Run("read with exhausted cursor", func(t *testing.T) {
+		t.Cleanup(func() {
+			clientd, err := mongod.Connect(context.Background(), clientOptions)
+			assert.Nil(t, err)
 
-	docByts, err := bson.Marshal(bson.D{{"x", 1}})
-	cmd := mongo.NewOpMsg(cmdb, []bsoncore.Document{docByts})
+			defer clientd.Disconnect(context.Background())
 
-	_, err = clientb.RoundTrip(cmd, []string{})
-	assert.Nil(t, err)
+			err = clientd.Database("simple").Collection("coll").Drop(context.Background())
+			assert.Nil(t, err)
+		})
 
-	for i := 0; i < 50; i++ {
-		// Put msg on the wire to get cursorID and first batch.
-		_, err := clientb.RoundTrip(cmd, []string{})
+		// Create an OP_MSG command that will respond with a non-exhausted cursor.
+		// Then extract the cursor's id from the server response.
+		cmdb, err := bson.Marshal(bson.D{
+			{"find", "coll"},  // Collection name
+			{"$db", "simple"}, // database
+			{"filter", bson.D{{"x", 1}}},
+		})
+
+		assert.NoError(t, err)
+
+		docByts, err := bson.Marshal(bson.D{{"x", 1}})
+		cmd := mongo.NewOpMsg(cmdb, []bsoncore.Document{docByts})
+
+		_, err = clientb.RoundTrip(cmd, []string{})
 		assert.Nil(t, err)
-	}
+
+		for i := 0; i < 50; i++ {
+			// Put msg on the wire to get cursorID and first batch.
+			_, err := clientb.RoundTrip(cmd, []string{})
+			assert.Nil(t, err)
+		}
+	})
 }
 
 func TestMongo_RoundTrip_Cursor(t *testing.T) {
