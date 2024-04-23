@@ -226,7 +226,19 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		m.processError(opErr, errorProcessor, addr, conn)
 	}
 
-	if responseCursorID, ok := op.CursorID(); ok {
+	responseCursorID, ok := op.CursorID()
+
+	defer func() {
+		// If we haven't opened a cursor and aren't in a transaction, then close
+		// the connection.
+		if conn != nil && txnDetails == nil && responseCursorID == 0 {
+			if err := conn.Close(); err != nil {
+				m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
+			}
+		}
+	}()
+
+	if ok {
 		if responseCursorID != 0 {
 			m.cursors.add(responseCursorID, collection, conn)
 		} else if requestCursorID != 0 {

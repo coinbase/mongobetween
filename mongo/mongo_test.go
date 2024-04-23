@@ -122,8 +122,43 @@ func TestRoundTripProcessError(t *testing.T) {
 	assert.Equal(t, description.ServerKind(description.Unknown), m.Description().Servers[0].Kind, "Failed to update the server Kind to Unknown")
 }
 
+func TestMongo_RoundTrip_NoCursorOrTxn(t *testing.T) {
+	const uri = "mongodb://127.0.0.1:8001/?loadBalanced=true"
+
+	// Create a MongoBetween client to perform mongobeteen operations in the test.
+	sd, err := statsd.New("localhost:8125")
+	assert.Nil(t, err)
+
+	clientOptions := options.Client().ApplyURI(uri).SetMaxPoolSize(10)
+	clientb, err := mongo.Connect(zap.L(), sd, clientOptions, false)
+	assert.Nil(t, err)
+
+	// Create an OP_MSG command that will respond with a non-exhausted cursor.
+	// Then extract the cursor's id from the server response.
+	cmdb, err := bson.Marshal(bson.D{
+		{"insert", "coll"}, // Collection name
+		{"$db", "simple"},  // database
+		{"ordered", true},
+	})
+
+	assert.NoError(t, err)
+
+	docByts, err := bson.Marshal(bson.D{{"x", 1}})
+	cmd := mongo.NewOpMsg(cmdb, []bsoncore.Document{docByts})
+
+	_, err = clientb.RoundTrip(cmd, []string{})
+	assert.Nil(t, err)
+
+	for i := 0; i < 50; i++ {
+		// Put msg on the wire to get cursorID and first batch.
+		_, err := clientb.RoundTrip(cmd, []string{})
+		assert.Nil(t, err)
+	}
+}
+
 func TestMongo_RoundTrip_Cursor(t *testing.T) {
 	const uri = "mongodb://127.0.0.1:8001/?loadBalanced=true"
+	const volume = 25
 
 	// Create a driver client to load test data.
 	opts := options.Client().ApplyURI(uri).SetLoadBalanced(true)
@@ -141,11 +176,14 @@ func TestMongo_RoundTrip_Cursor(t *testing.T) {
 	coll := db.Collection("simple")
 	defer func() { _ = coll.Drop(context.Background()) }()
 
-	for i := 0; i < 10; i++ {
-		_, err := coll.InsertOne(context.Background(), bson.D{{"i64", i}})
-		if err != nil {
-			log.Fatal(err)
-		}
+	docs := make([]interface{}, volume)
+	for i := 0; i < volume; i++ {
+		docs[i] = bson.D{{"i64", i}}
+	}
+
+	_, err = coll.InsertMany(context.Background(), docs)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	// Create a MongoBetween client to perform mongobeteen operations in the test.
@@ -162,7 +200,7 @@ func TestMongo_RoundTrip_Cursor(t *testing.T) {
 		{"find", "simple"}, // Collection name
 		{"$db", "cursor"},  // Database
 		{"batchSize", 1},
-		{"filter", bson.D{{"i64", bson.D{{"$lte", 25}}}}}, // Query filter
+		{"filter", bson.D{{"i64", bson.D{{"$lte", volume - 1}}}}}, // Query filter
 	})
 
 	assert.NoError(t, err)
@@ -200,9 +238,9 @@ func TestMongo_RoundTrip_Cursor(t *testing.T) {
 	getMoreCmd := mongo.NewOpMsg(getMoreb, nil)
 
 	wg := sync.WaitGroup{}
-	wg.Add(9) // Ensure every round trip completes
+	wg.Add(volume - 1) // Ensure every round trip completes
 
-	for i := 0; i < 9; i++ {
+	for i := 0; i < volume-1; i++ {
 		go func() {
 			defer wg.Done()
 
@@ -215,6 +253,7 @@ func TestMongo_RoundTrip_Cursor(t *testing.T) {
 			errCode, err := doc.LookupErr("code")
 			if err != nil {
 				return
+				//continue
 			}
 
 			errCodeI32, ok := errCode.Int32OK()
