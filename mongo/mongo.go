@@ -153,15 +153,38 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	// Transaction is pinned to a server by the issued lsid
 	requestCursorID, _ := msg.Op.CursorID()
 	requestCommand, collection := msg.Op.CommandAndCollection()
-	transactionDetails := msg.Op.TransactionDetails()
-	server, err := m.selectServer(requestCursorID, collection, transactionDetails)
-	if err != nil {
-		return nil, err
+	txnDetails := msg.Op.TransactionDetails()
+
+	var conn driver.Connection
+	var server driver.Server
+
+	// Check for a pinned server based on current transaction lsid first
+	if txnDetails != nil {
+		var ok bool
+
+		conn, ok = m.transactions.peek(txnDetails.LsID)
+		if ok {
+			m.log.Debug("found cached transaction", zap.String("lsid", fmt.Sprintf("%+v", txnDetails)))
+		}
+	} else if requestCursorID != 0 {
+		var ok bool
+
+		conn, ok = m.cursors.peek(requestCursorID, collection)
+		if ok {
+			m.log.Debug("Cached cursorID has been found", zap.Int64("cursor", requestCursorID), zap.String("collection", collection))
+		}
 	}
 
-	conn, err := m.checkoutConnection(server)
-	if err != nil {
-		return nil, err
+	if conn == nil {
+		server, err := m.selectServer(collection)
+		if err != nil {
+			return nil, err
+		}
+
+		conn, err = m.checkoutConnection(server)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	addr = conn.Address()
@@ -170,23 +193,21 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 		fmt.Sprintf("address:%s", conn.Address().String()),
 	)
 
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
-		}
-	}()
-
 	// see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L430-L432
-	ep, ok := server.(driver.ErrorProcessor)
-	if !ok {
-		return nil, errors.New("server ErrorProcessor type assertion failed")
+	var errorProcessor driver.ErrorProcessor
+	if server != nil {
+		var ok bool
+
+		errorProcessor, ok = server.(driver.ErrorProcessor)
+		if !ok {
+			return nil, errors.New("server ErrorProcessor type assertion failed")
+		}
 	}
 
 	unacknowledged := msg.Op.Unacknowledged()
 	wm, err := m.roundTrip(conn, msg.Wm, unacknowledged, tags)
 	if err != nil {
-		m.processError(err, ep, addr, conn)
+		m.processError(err, errorProcessor, addr, conn)
 		return nil, err
 	}
 	if unacknowledged {
@@ -202,24 +223,49 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	opErr := op.Error()
 	if opErr != nil {
 		// process the error, but don't return it as we still want to forward the response to the client
-		m.processError(opErr, ep, addr, conn)
+		m.processError(opErr, errorProcessor, addr, conn)
 	}
 
-	if responseCursorID, ok := op.CursorID(); ok {
+	responseCursorID, ok := op.CursorID()
+
+	defer func() {
+		// If we haven't opened a cursor and aren't in a transaction, then close
+		// the connection.
+		if conn != nil && txnDetails == nil && responseCursorID == 0 {
+			if err := conn.Close(); err != nil {
+				m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
+			}
+		}
+	}()
+
+	if ok {
 		if responseCursorID != 0 {
-			m.cursors.add(responseCursorID, collection, server)
+			m.cursors.add(responseCursorID, collection, conn)
 		} else if requestCursorID != 0 {
+			// If the response cursor id is zero and the request cursor id is
+			// non-zero, then we've exhausted the cursor and so should close and unpin
+			// the connection.
 			m.cursors.remove(requestCursorID, collection)
+
+			err := conn.Close()
+			if err != nil {
+				m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
+			}
 		}
 	}
 
-	if transactionDetails != nil {
-		if transactionDetails.IsStartTransaction {
-			m.transactions.add(transactionDetails.LsID, server)
+	if txnDetails != nil {
+		if txnDetails.IsStartTransaction {
+			m.transactions.add(txnDetails.LsID, conn)
 		} else {
 			if requestCommand == AbortTransaction || requestCommand == CommitTransaction {
 				m.log.Debug("Removing transaction from the cache", zap.String("reqCommand", string(requestCommand)))
-				m.transactions.remove(transactionDetails.LsID)
+				m.transactions.remove(txnDetails.LsID)
+
+				err := conn.Close()
+				if err != nil {
+					m.log.Error("Error closing Mongo connection", zap.Error(err), zap.String("address", addr.String()))
+				}
 			}
 		}
 	}
@@ -230,28 +276,10 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	}, nil
 }
 
-func (m *Mongo) selectServer(requestCursorID int64, collection string, transDetails *TransactionDetails) (server driver.Server, err error) {
+func (m *Mongo) selectServer(collection string) (server driver.Server, err error) {
 	defer func(start time.Time) {
 		_ = m.statsd.Timing("server_selection", time.Since(start), []string{fmt.Sprintf("success:%v", err == nil)}, 1)
 	}(time.Now())
-
-	// Check for a pinned server based on current transaction lsid first
-	if transDetails != nil {
-		if server, ok := m.transactions.peek(transDetails.LsID); ok {
-			m.log.Debug("found cached transaction", zap.String("lsid", fmt.Sprintf("%+v", transDetails)))
-			return server, nil
-		}
-	}
-
-	// Search for pinned cursor then
-	if requestCursorID != 0 {
-		server, ok := m.cursors.peek(requestCursorID, collection)
-		if ok {
-			m.log.Debug("Cached cursorID has been found", zap.Int64("cursor", requestCursorID), zap.String("collection", collection))
-			return server, nil
-		}
-	}
-
 	// Select a server
 	selector := description.CompositeSelector([]description.ServerSelector{
 		description.ReadPrefSelector(readpref.Primary()),   // ignored by sharded clusters
@@ -333,7 +361,9 @@ func (m *Mongo) processError(err error, ep driver.ErrorProcessor, addr address.A
 	}
 
 	// process the error
-	ep.ProcessError(err, conn)
+	if ep != nil {
+		ep.ProcessError(err, conn)
+	}
 
 	// log if the error changed the topology
 	if errorChangesTopology(err) {

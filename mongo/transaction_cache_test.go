@@ -3,56 +3,50 @@ package mongo
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.mongodb.org/mongo-driver/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/mongo/address"
+	"go.mongodb.org/mongo-driver/mongo/description"
 )
 
-type transactionMockServer struct {
+type txnMockConnection struct {
 	i int
 }
 
-func (m *transactionMockServer) MinRTT() time.Duration {
-	return time.Duration(0)
-}
-
-func (m *transactionMockServer) RTT90() time.Duration {
-	return time.Duration(0)
-}
-
-func (m *transactionMockServer) Connection(context.Context) (driver.Connection, error) {
-	return nil, nil
-}
-
-func (m *transactionMockServer) RTTMonitor() driver.RTTMonitor {
-	return nil
-}
+func (*txnMockConnection) WriteWireMessage(context.Context, []byte) error  { return nil }
+func (*txnMockConnection) ReadWireMessage(context.Context) ([]byte, error) { return nil, nil }
+func (*txnMockConnection) Description() description.Server                 { return description.Server{} }
+func (*txnMockConnection) Close() error                                    { return nil }
+func (*txnMockConnection) ID() string                                      { return "" }
+func (*txnMockConnection) ServerConnectionID() *int64                      { return nil }
+func (*txnMockConnection) DriverConnectionID() uint64                      { return 0 }
+func (*txnMockConnection) Address() address.Address                        { return address.Address("") }
+func (*txnMockConnection) Stale() bool                                     { return false }
 
 func TestTransactionCacheCount(t *testing.T) {
 	tc := newTransactionCache()
-	tc.add([]byte{0x1}, &transactionMockServer{})
-	tc.add([]byte{0x2}, &transactionMockServer{})
-	tc.add([]byte{0x3}, &transactionMockServer{})
+	tc.add([]byte{0x1}, &txnMockConnection{})
+	tc.add([]byte{0x2}, &txnMockConnection{})
+	tc.add([]byte{0x3}, &txnMockConnection{})
 	assert.Equal(t, 3, tc.count())
 
-	tc.add([]byte{0x1}, &transactionMockServer{10})
+	tc.add([]byte{0x1}, &txnMockConnection{10})
 	assert.Equal(t, 3, tc.count())
 
-	tc.add([]byte{0x10}, &transactionMockServer{10})
+	tc.add([]byte{0x10}, &txnMockConnection{10})
 	assert.Equal(t, 4, tc.count())
 
 }
 
 func TestTransactionCachePeek(t *testing.T) {
 	tc := newTransactionCache()
-	tc.add([]byte{0x10}, &transactionMockServer{4})
-	tc.add([]byte{0x12}, &transactionMockServer{5})
-	tc.add([]byte{0x14}, &transactionMockServer{6})
+	tc.add([]byte{0x10}, &txnMockConnection{4})
+	tc.add([]byte{0x12}, &txnMockConnection{5})
+	tc.add([]byte{0x14}, &txnMockConnection{6})
 
 	s, ok := tc.peek([]byte{0x12})
 	assert.True(t, ok)
-	assert.Equal(t, s.(*transactionMockServer).i, 5)
+	assert.Equal(t, s.(*txnMockConnection).i, 5)
 
 	_, ok = tc.peek([]byte{0x13})
 	assert.False(t, ok)
@@ -60,23 +54,23 @@ func TestTransactionCachePeek(t *testing.T) {
 
 func TestTransactionCacheAdd(t *testing.T) {
 	tc := newTransactionCache()
-	tc.add([]byte{0x10}, &transactionMockServer{4})
-	tc.add([]byte{0x12}, &transactionMockServer{5})
-	tc.add([]byte{0x14}, &transactionMockServer{6})
+	tc.add([]byte{0x10}, &txnMockConnection{4})
+	tc.add([]byte{0x12}, &txnMockConnection{5})
+	tc.add([]byte{0x14}, &txnMockConnection{6})
 
 	_, ok := tc.peek([]byte{0x13})
 	assert.False(t, ok)
 
-	tc.add([]byte{0x13}, &transactionMockServer{7})
+	tc.add([]byte{0x13}, &txnMockConnection{7})
 	_, ok = tc.peek([]byte{0x13})
 	assert.True(t, ok)
 }
 
 func TestTransactionTestRemove(t *testing.T) {
 	tc := newTransactionCache()
-	tc.add([]byte{0x10}, &transactionMockServer{4})
-	tc.add([]byte{0x12}, &transactionMockServer{5})
-	tc.add([]byte{0x14}, &transactionMockServer{6})
+	tc.add([]byte{0x10}, &txnMockConnection{4})
+	tc.add([]byte{0x12}, &txnMockConnection{5})
+	tc.add([]byte{0x14}, &txnMockConnection{6})
 	assert.Equal(t, 3, tc.count())
 
 	_, ok := tc.peek([]byte{0x12})
