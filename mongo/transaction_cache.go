@@ -2,10 +2,9 @@ package mongo
 
 import (
 	b64 "encoding/base64"
-	"time"
-
 	"github.com/coinbase/mongobetween/lruttl"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
+	"time"
 )
 
 // on a 64-bit machine, 1 million cursors uses around 480mb of memory
@@ -26,16 +25,16 @@ func (t *transactionCache) count() int {
 	return t.c.Len()
 }
 
-func (t *transactionCache) peek(lsID []byte) (conn driver.Connection, ok bool) {
+func (t *transactionCache) peek(lsID []byte) (server driver.Server, ok bool) {
 	v, ok := t.c.Peek(b64.StdEncoding.EncodeToString(lsID))
 	if !ok {
 		return
 	}
-	return v.(driver.Connection), true
+	return v.(driver.Server), true
 }
 
-func (t *transactionCache) add(lsID []byte, conn driver.Connection) {
-	t.c.Add(b64.StdEncoding.EncodeToString(lsID), conn)
+func (t *transactionCache) add(lsID []byte, server driver.Server) {
+	t.c.Add(b64.StdEncoding.EncodeToString(lsID), server)
 }
 
 func (t *transactionCache) remove(lsID []byte) {
