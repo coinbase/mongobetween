@@ -71,6 +71,49 @@ func TestRoundTrip(t *testing.T) {
 	assert.Equal(t, 1.0, single.Lookup("ok").Double())
 }
 
+// This test will set a max pool size of 3, and will send 4 messages with lingering cursors.
+// The expected behavior is for this test to pass without any errors or timeouts.
+// Run with: docker-compose up -d && go test -v -timeout 30s -run ^TestRoundTripStuckPool$ github.com/coinbase/mongobetween/mongo
+func TestRoundTripStuckPool(t *testing.T) {
+	uri := "mongodb://localhost:27017/test?maxPoolSize=3"
+	sd, err := statsd.New("localhost:8125")
+	assert.Nil(t, err)
+
+	clientOptions := options.Client().ApplyURI(uri)
+	m, err := mongo.Connect(zap.L(), sd, clientOptions, false)
+	assert.Nil(t, err)
+
+	// Insert documents
+	msg := insertOpMsg(t)
+	res, err := m.RoundTrip(msg, []string{})
+	assert.Nil(t, err)
+	single := mongo.ExtractSingleOpMsg(t, res)
+	assert.Equal(t, int32(2), single.Lookup("n").Int32())
+	assert.Equal(t, 1.0, single.Lookup("ok").Double())
+
+	// Create find query to open cursors / check out connections in the pool
+	cmdb, err := bson.Marshal(bson.D{
+		{"find", "trainers"}, // Collection
+		{"$db", "test"},      // Database
+		{"batchSize", 1},
+		{"filter", bson.D{{"age", bson.D{{"$gte", 0}}}}}, // Query filter
+	})
+	assert.NoError(t, err)
+	cmd := mongo.NewOpMsg(cmdb, nil)
+
+	// Send message 3 times to exhaust pool with checked out connections.
+	numExecutions := 3
+	for i := 0; i < numExecutions; i++ {
+		_, err = m.RoundTrip(cmd, []string{})
+		assert.Nil(t, err)
+	}
+
+	// TODO: Remove this log once issue is fixed.
+	t.Log("This below invocation will be block due to pool exhaustion.")
+	_, err = m.RoundTrip(cmd, []string{})
+	assert.Nil(t, err)
+}
+
 func TestRoundTripProcessError(t *testing.T) {
 	uri := "mongodb://localhost:27017/test"
 	if os.Getenv("CI") == "true" {
