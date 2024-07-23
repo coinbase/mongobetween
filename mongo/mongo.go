@@ -24,7 +24,12 @@ import (
 const pingTimeout = 60 * time.Second
 const disconnectTimeout = 10 * time.Second
 
+var ErrMaxedReserve = fmt.Errorf("cursor could not be pinned to connection: maxed out reserve")
+
 type Mongo struct {
+	// Max number of connections to be pinned by cursors
+	reservedConnections int
+
 	log    *zap.Logger
 	statsd *statsd.Client
 	opts   *options.ClientOptions
@@ -82,6 +87,13 @@ func Connect(log *zap.Logger, sd *statsd.Client, opts *options.ClientOptions, pi
 		roundTripCtx:    rtCtx,
 		roundTripCancel: rtCancel,
 	}
+
+	if opts.MaxPoolSize == nil {
+		m.reservedConnections = 50 // Default is 100
+	} else {
+		m.reservedConnections = int(*opts.MaxPoolSize) / 2
+	}
+
 	go m.cacheMonitor()
 
 	return &m, nil
@@ -237,6 +249,12 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 			}
 		}
 	}()
+
+	if ok && m.cursors.count() == m.reservedConnections {
+		responseCursorID = 0
+
+		return nil, ErrMaxedReserve
+	}
 
 	if ok {
 		if responseCursorID != 0 {

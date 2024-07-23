@@ -101,17 +101,11 @@ func TestRoundTripStuckPool(t *testing.T) {
 	assert.NoError(t, err)
 	cmd := mongo.NewOpMsg(cmdb, nil)
 
-	// Send message 3 times to exhaust pool with checked out connections.
-	numExecutions := 3
-	for i := 0; i < numExecutions; i++ {
-		_, err = m.RoundTrip(cmd, []string{})
-		assert.Nil(t, err)
-	}
-
-	// TODO: Remove this log once issue is fixed.
-	t.Log("This below invocation will be block due to pool exhaustion.")
 	_, err = m.RoundTrip(cmd, []string{})
-	assert.Nil(t, err)
+	assert.NoError(t, err)
+
+	_, err = m.RoundTrip(cmd, []string{})
+	assert.Error(t, mongo.ErrMaxedReserve)
 }
 
 func TestRoundTripProcessError(t *testing.T) {
