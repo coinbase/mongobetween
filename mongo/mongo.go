@@ -154,6 +154,7 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	requestCursorID, _ := msg.Op.CursorID()
 	requestCommand, collection := msg.Op.CommandAndCollection()
 	txnDetails := msg.Op.TransactionDetails()
+	readPref, _ := msg.Op.ReadPref()
 
 	var conn driver.Connection
 	var server driver.Server
@@ -176,7 +177,7 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	}
 
 	if conn == nil {
-		server, err := m.selectServer(collection)
+		server, err := m.selectServer(collection, readPref)
 		if err != nil {
 			return nil, err
 		}
@@ -276,13 +277,13 @@ func (m *Mongo) RoundTrip(msg *Message, tags []string) (_ *Message, err error) {
 	}, nil
 }
 
-func (m *Mongo) selectServer(collection string) (server driver.Server, err error) {
+func (m *Mongo) selectServer(collection string, readPref *readpref.ReadPref) (server driver.Server, err error) {
 	defer func(start time.Time) {
 		_ = m.statsd.Timing("server_selection", time.Since(start), []string{fmt.Sprintf("success:%v", err == nil)}, 1)
 	}(time.Now())
 	// Select a server
 	selector := description.CompositeSelector([]description.ServerSelector{
-		description.ReadPrefSelector(readpref.Primary()),   // ignored by sharded clusters
+		description.ReadPrefSelector(readPref),             // ignored by sharded clusters
 		description.LatencySelector(15 * time.Millisecond), // default localThreshold for the client
 	})
 	return m.topology.SelectServer(m.roundTripCtx, selector)
