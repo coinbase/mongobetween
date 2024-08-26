@@ -9,6 +9,8 @@ import (
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
+
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
 type Message struct {
@@ -33,6 +35,7 @@ type Operation interface {
 	Unacknowledged() bool
 	CommandAndCollection() (Command, string)
 	TransactionDetails() *TransactionDetails
+	ReadPref() (rpref *readpref.ReadPref, ok bool)
 }
 
 // see https://github.com/mongodb/mongo-go-driver/blob/v1.7.2/x/mongo/driver/operation.go#L1361-L1426
@@ -244,6 +247,7 @@ type opMsgSection interface {
 	isIsMaster() bool
 	append(buffer []byte) []byte
 	commandAndCollection() (Command, string)
+	ReadPref() (rpref *readpref.ReadPref, ok bool)
 }
 
 type opMsgSectionSingle struct {
@@ -275,6 +279,20 @@ func (o *opMsgSectionSingle) commandAndCollection() (Command, string) {
 
 func (o *opMsgSectionSingle) String() string {
 	return fmt.Sprintf("{ SectionSingle msg: %s }", o.msg.String())
+}
+
+func (o *opMsgSectionSingle) ReadPref() (rpref *readpref.ReadPref, ok bool) {
+	if prefDoc, ok := o.msg.Lookup("$readPreference").DocumentOK(); ok {
+		if prefStr, ok := prefDoc.Lookup("mode").StringValueOK(); ok {
+			// Note: only the mode is unpacked currently
+			mode, err := readpref.ModeFromString(prefStr)
+			if err == nil {
+				rpref, _ := readpref.New(mode)
+				return rpref, true
+			}
+		}
+	}
+	return readpref.Primary(), false
 }
 
 type opMsgSectionSequence struct {
@@ -676,6 +694,35 @@ func (g *opGetMore) String() string {
 	return fmt.Sprintf("{ OpGetMore fullCollectionName: %s, numberToReturn: %d, cursorID: %d }", g.fullCollectionName, g.numberToReturn, g.cursorID)
 }
 
+func (g *opGetMore) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
+func (r *opReply) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
+func (o *opMsgSectionSequence) ReadPref() (rpref *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
+func (m *opMsg) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	for _, section := range m.sections {
+		if rpref, ok := section.ReadPref(); ok {
+			return rpref, ok
+		}
+	}
+	return readpref.Primary(), false
+}
+
+func (q *opQuery) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
+func (o *opUnknown) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
 // https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#op_update
 type opUpdate struct {
 	reqID              int32
@@ -687,6 +734,10 @@ type opUpdate struct {
 
 func (u *opUpdate) TransactionDetails() *TransactionDetails {
 	return nil
+}
+
+func (g *opUpdate) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
 }
 
 func decodeUpdate(reqID int32, wm []byte) (*opUpdate, error) {
@@ -773,6 +824,10 @@ func (i *opInsert) TransactionDetails() *TransactionDetails {
 	return nil
 }
 
+func (g *opInsert) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
 func decodeInsert(reqID int32, wm []byte) (*opInsert, error) {
 	var ok bool
 	i := opInsert{
@@ -857,6 +912,10 @@ func (d *opDelete) TransactionDetails() *TransactionDetails {
 	return nil
 }
 
+func (g *opDelete) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
+}
+
 func decodeDelete(reqID int32, wm []byte) (*opDelete, error) {
 	var ok bool
 	d := opDelete{
@@ -936,6 +995,10 @@ type opKillCursors struct {
 
 func (k *opKillCursors) TransactionDetails() *TransactionDetails {
 	return nil
+}
+
+func (g *opKillCursors) ReadPref() (rp *readpref.ReadPref, ok bool) {
+	return readpref.Primary(), false
 }
 
 func decodeKillCursors(reqID int32, wm []byte) (*opKillCursors, error) {
