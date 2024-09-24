@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+env:
+  GO_VERSION: "1.18"
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    # running in a container enables us to use mongo{1,2,3} as a hostname
+    # in our tests, since we are all part of the same docker network.
+    # from the host, we would have to do port mappings
+    container:
+      # gh actions needs node, so use the node image
+      image: node
+    services:
+      mongo1:
+        image: mongo:5
+      mongo2:
+        image: mongo:5
+      mongo3:
+        image: mongo:5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: go install gotest.tools/gotestsum@latest
+      - run: |
+          ~/go/bin/gotestsum --junitfile gotestsum-report.xml ./...
+      - uses: mikepenz/action-junit-report@v4
+        if: success() || failure()
+        with:
+          report_paths: "gotestsum-report.xml"
+          include_passed: true
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: golangci/golangci-lint-action@v6
+
+  salus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo docker run -t -v $(pwd):/home/repo coinbase/salus
