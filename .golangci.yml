@@ -1,0 +1,8 @@
+issues:
+  exclude-rules:
+    # these operations are deprecated, and we properly parse the replacement message type, but
+    # support remains for the deprecated form of encoding
+    - path: mongo/operations.go
+      text: "SA1019: wiremessage.ReadQuery"
+    - path: mongo/operations.go
+      text: "SA1019: wiremessage.OpQuery"
