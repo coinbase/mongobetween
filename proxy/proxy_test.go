@@ -108,7 +108,7 @@ func TestProxyUnacknowledgedWrites(t *testing.T) {
 
 	// Create two *Collection instances: one for setup and basic operations and and one configured with an
 	// unacknowledged write concern for testing.
-	wc := writeconcern.New(writeconcern.W(0))
+	wc := writeconcern.Unacknowledged()
 	setupCollection := client.Database("test").Collection("test_proxy_unacknowledged_writes")
 	unackCollection, err := setupCollection.Clone(options.Collection().SetWriteConcern(wc))
 	assert.Nil(t, err)
