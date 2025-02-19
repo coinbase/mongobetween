@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -30,6 +32,7 @@ var newStatsdClientInit = newStatsdClient
 
 type Config struct {
 	network    string
+	cert       string
 	unlink     bool
 	ping       bool
 	pretty     bool
@@ -117,8 +120,9 @@ func parseFlags() (*Config, error) {
 	}
 
 	var unlink, ping, pretty, enableSdamMetrics, enableSdamLogging bool
-	var network, username, password, stats, loglevel, dynamic string
+	var network, username, password, stats, loglevel, dynamic, cert string
 	flag.StringVar(&network, "network", "tcp4", "One of: tcp, tcp4, tcp6, unix or unixpacket")
+	flag.StringVar(&cert, "cert", "", "Path to SSL certifcate (PEM)")
 	flag.StringVar(&username, "username", "", "MongoDB username")
 	flag.StringVar(&password, "password", "", "MongoDB password")
 	flag.StringVar(&stats, "statsd", defaultStatsdAddress, "Statsd address")
@@ -133,6 +137,7 @@ func parseFlags() (*Config, error) {
 	flag.Parse()
 
 	network = expandEnv(network)
+	cert = expandEnv(cert)
 	username = expandEnv(username)
 	password = expandEnv(password)
 	stats = expandEnv(stats)
@@ -181,7 +186,7 @@ func parseFlags() (*Config, error) {
 
 	var clients []client
 	for address, uri := range addressMap {
-		label, opts, err := clientOptions(uri, username, password)
+		label, opts, err := clientOptions(uri, username, password, cert)
 		if err != nil {
 			return nil, err
 		}
@@ -214,7 +219,7 @@ func expandEnv(config string) string {
 	})
 }
 
-func clientOptions(uri, username, password string) (string, *options.ClientOptions, error) {
+func clientOptions(uri, username, password string, cert string) (string, *options.ClientOptions, error) {
 	uri = uriWorkaround(uri, username)
 
 	cs, err := connstring.Parse(uri)
@@ -244,6 +249,23 @@ func clientOptions(uri, username, password string) (string, *options.ClientOptio
 		} else if opts.Auth.Password == "" {
 			opts.Auth.Password = password
 		}
+	}
+
+	if cert != "" {
+		caCert, err := os.ReadFile(cert)
+		if err != nil {
+			panic(err)
+		}
+		caCertPool := x509.NewCertPool()
+		if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
+			panic("Error: CA file must be in PEM format")
+		}
+
+		tlsConfig := &tls.Config{
+			RootCAs: caCertPool,
+		}
+
+		opts.SetTLSConfig(tlsConfig)
 	}
 
 	if err := opts.Validate(); err != nil {

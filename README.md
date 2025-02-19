@@ -30,6 +30,8 @@ Usage: mongobetween [OPTIONS] address1=uri1 [address2=uri2] ...
     	Unlink existing unix sockets before listening
   -username string
     	MongoDB username
+  -cert string
+      Path to SSL certifcate (PEM)
   -dynamic string
     	File or URL to query for dynamic configuration
   -enable-sdam-metrics
