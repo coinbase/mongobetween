@@ -185,7 +185,7 @@ func parseFlags() (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		initMonitoring(opts, statsdClient, loggerClient, enableSdamMetrics, enableSdamLogging)
+		initMonitoring(label, opts, statsdClient, loggerClient, enableSdamMetrics, enableSdamLogging)
 		clients = append(clients, client{
 			address: address,
 			label:   label,
@@ -253,9 +253,9 @@ func clientOptions(uri, username, password string) (string, *options.ClientOptio
 	return label, opts, nil
 }
 
-func initMonitoring(opts *options.ClientOptions, statsd *statsd.Client, logger *zap.Logger, enableSdamMetrics bool, enableSdamLogging bool) *options.ClientOptions {
+func initMonitoring(label string, opts *options.ClientOptions, statsd *statsd.Client, logger *zap.Logger, enableSdamMetrics bool, enableSdamLogging bool) *options.ClientOptions {
 	// set up monitors for Pool and Server(SDAM)
-	opts = opts.SetPoolMonitor(poolMonitor(statsd))
+	opts = opts.SetPoolMonitor(poolMonitor(label, statsd))
 	opts = opts.SetServerMonitor(serverMonitoring(logger, statsd, enableSdamMetrics, enableSdamLogging))
 	return opts
 }
@@ -302,9 +302,14 @@ func newLogger(level zapcore.Level, pretty bool) *zap.Logger {
 	return log
 }
 
-func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
-	checkedOut, checkedIn := util.StatsdBackgroundGauge(sd, "pool.checked_out_connections", []string{})
-	opened, closed := util.StatsdBackgroundGauge(sd, "pool.open_connections", []string{})
+func poolMonitor(label string, sd *statsd.Client) *event.PoolMonitor {
+	defaultTags := []string{}
+	if label != "" {
+		defaultTags = append(defaultTags, fmt.Sprintf("cluster:%s", label))
+	}
+
+	checkedOut, checkedIn := util.StatsdBackgroundGauge(sd, "pool.checked_out_connections", defaultTags)
+	opened, closed := util.StatsdBackgroundGauge(sd, "pool.open_connections", defaultTags)
 
 	return &event.PoolMonitor{
 		Event: func(e *event.PoolEvent) {
@@ -314,6 +319,8 @@ func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
 				fmt.Sprintf("address:%s", e.Address),
 				fmt.Sprintf("reason:%s", e.Reason),
 			}
+			tags = append(tags, defaultTags...)
+
 			switch e.Type {
 			case event.ConnectionCreated:
 				opened(name, tags)
