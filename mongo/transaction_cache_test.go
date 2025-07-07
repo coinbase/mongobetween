@@ -41,7 +41,6 @@ func TestTransactionCacheCount(t *testing.T) {
 
 	tc.add([]byte{0x10}, &transactionMockServer{10})
 	assert.Equal(t, 4, tc.count())
-
 }
 
 func TestTransactionCachePeek(t *testing.T) {

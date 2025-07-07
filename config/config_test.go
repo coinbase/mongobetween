@@ -2,12 +2,13 @@ package config
 
 import (
 	"flag"
-	"github.com/DataDog/datadog-go/statsd"
-	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap/zapcore"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/DataDog/datadog-go/statsd"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap/zapcore"
 )
 
 type statsdWriterWrapper struct{}
@@ -45,7 +46,7 @@ func TestParseFlags(t *testing.T) {
 		"/tmp/mongo2.sock=mongodb://localhost:27128/database?maxpoolsize=10&label=cluster2",
 	}
 
-	//mock out newStatsdClient
+	// mock out newStatsdClient
 	originalFunc := newStatsdClientInit
 	newStatsdClientInit = func(stats string) (*statsd.Client, error) {
 		return statsd.NewWithWriter(statsdWriterWrapper{})

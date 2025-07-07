@@ -1,11 +1,12 @@
 package mongo
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/mongo/description"
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/wiremessage"
-	"testing"
 )
 
 func TestIsMasterSingle(t *testing.T) {

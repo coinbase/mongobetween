@@ -446,9 +446,7 @@ func (m *opMsg) CommandAndCollection() (Command, string) {
 // deprecated operations such OP_UPDATE OP_INSERT are not supposed to support transaction statements.
 // When constructing any other command within a transaction, drivers MUST add the lsid, txnNumber, and autocommit fields.
 func (m *opMsg) TransactionDetails() *TransactionDetails {
-
 	for _, section := range m.sections {
-
 		if single, ok := section.(*opMsgSectionSingle); ok {
 			_, lsID, ok := single.msg.Lookup("lsid", "id").BinaryOK()
 			if !ok {

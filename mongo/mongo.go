@@ -21,8 +21,10 @@ import (
 	"go.uber.org/zap"
 )
 
-const pingTimeout = 60 * time.Second
-const disconnectTimeout = 10 * time.Second
+const (
+	pingTimeout       = 60 * time.Second
+	disconnectTimeout = 10 * time.Second
+)
 
 type Mongo struct {
 	log    *zap.Logger

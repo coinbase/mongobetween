@@ -21,8 +21,10 @@ import (
 	"github.com/coinbase/mongobetween/util"
 )
 
-const usernamePlaceholder = "_"
-const defaultStatsdAddress = "localhost:8125"
+const (
+	usernamePlaceholder  = "_"
+	defaultStatsdAddress = "localhost:8125"
+)
 
 var validNetworks = []string{"tcp", "tcp4", "tcp6", "unix", "unixpacket"}
 
@@ -331,7 +333,6 @@ func poolMonitor(sd *statsd.Client) *event.PoolMonitor {
 }
 
 func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client, enableSdamMetrics bool, enableSdamLogging bool) *event.ServerMonitor {
-
 	return &event.ServerMonitor{
 		ServerOpening: func(e *event.ServerOpeningEvent) {
 			if enableSdamMetrics {

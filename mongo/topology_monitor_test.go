@@ -1,9 +1,10 @@
 package mongo
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/mongo/description"
-	"testing"
 )
 
 func TestTopologyDescriptionEqual(t *testing.T) {

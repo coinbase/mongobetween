@@ -1,13 +1,14 @@
 package util_test
 
 import (
-	"github.com/coinbase/mongobetween/util"
-	"github.com/DataDog/datadog-go/statsd"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DataDog/datadog-go/statsd"
+	"github.com/coinbase/mongobetween/util"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 type mockedWriter struct {
@@ -23,14 +24,17 @@ func (w *mockedWriter) Write(data []byte) (n int, err error) {
 	w.buffer = append(w.buffer, data...)
 	return args.Int(0), args.Error(1)
 }
+
 func (w *mockedWriter) SetWriteTimeout(d time.Duration) error {
 	args := w.Called(d)
 	return args.Error(0)
 }
+
 func (w *mockedWriter) Close() error {
 	args := w.Called()
 	return args.Error(0)
 }
+
 func (w *mockedWriter) String() string {
 	w.m.RLock()
 	defer w.m.RUnlock()

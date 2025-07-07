@@ -30,7 +30,6 @@ func (c *cursorCache) count() int {
 }
 
 func (c *cursorCache) peek(cursorID int64, collection string) (server driver.Server, ok bool) {
-
 	v, ok := c.c.Peek(buildKey(cursorID, collection))
 	if !ok {
 		return

@@ -41,7 +41,6 @@ func TestCount(t *testing.T) {
 
 	cc.add(10, "db.coll2", &mockServer{10})
 	assert.Equal(t, 4, cc.count())
-
 }
 
 func TestPeek(t *testing.T) {

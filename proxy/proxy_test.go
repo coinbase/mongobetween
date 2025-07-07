@@ -136,18 +136,18 @@ func TestProxyWithDynamicConfig(t *testing.T) {
 
 	json := fmt.Sprintf(`{
 	  "Clusters": {
-		":%d": {
-		  "DisableWrites": true,
-		  "RedirectTo": ""
-		},
-		":%d": {
-		  "DisableWrites": false,
-		  "RedirectTo": ":%d"
-		},
-		":%d": {
-		  "DisableWrites": false,
-		  "RedirectTo": ""
-		}
+			":%d": {
+				"DisableWrites": true,
+				"RedirectTo": ""
+			},
+			":%d": {
+				"DisableWrites": false,
+				"RedirectTo": ":%d"
+			},
+			":%d": {
+				"DisableWrites": false,
+				"RedirectTo": ""
+			}
 	  }
 	}`, proxyPort, proxyPort+1, proxyPort+2, proxyPort+2)
 	f, err := ioutil.TempFile("", "*.json")
@@ -169,6 +169,7 @@ func TestProxyWithDynamicConfig(t *testing.T) {
 			p.Shutdown()
 		}
 	}()
+
 	for _, p := range proxies {
 		proxy := p
 		go func() {

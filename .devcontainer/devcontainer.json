@@ -1,0 +1,38 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/go
+{
+	"name": "mongobetween",
+	"features": {},
+	"dockerComposeFile": [
+		"../docker-compose.yml",
+		"docker-compose.devcontainer.yml"
+	],
+	"service": "devcontainer",
+	"runServices": [
+		"mongo1",
+		"mongo2",
+		"mongo3"
+	],
+	"workspaceFolder": "/workspace",
+	// Install extra packages we might need that do not have a feature.
+	"postCreateCommand": "bash -i .devcontainer/bin/install-dependencies",
+	// Environment variables to set in the container
+	"remoteEnv": {
+		// add the bin directory to the path so we can use the db script more easily.
+		"PATH": "/workspace/.devcontainer/bin:${containerEnv:PATH}"
+	},
+	"customizations": {
+		"vscode": {
+			// Enable some extensions inside the devcontainer.
+			"extensions": [
+				"golang.go",
+				"redhat.vscode-yaml",
+				"waderyan.gitblame"
+			],
+			"unwantedExtensions": [
+				// Apparently this is ignored and the extension gets shoehorned regardless of this setting, but I am leaving this here out of spite.
+				"dbaeumer.vscode-eslint"
+			]
+		}
+	}
+}

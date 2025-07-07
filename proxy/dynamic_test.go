@@ -1,10 +1,11 @@
 package proxy
 
 import (
-	"go.uber.org/zap"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"go.uber.org/zap"
 
 	"github.com/stretchr/testify/assert"
 )

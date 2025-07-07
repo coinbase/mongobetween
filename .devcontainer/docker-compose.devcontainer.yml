@@ -1,0 +1,19 @@
+services:
+  devcontainer:
+    image: mcr.microsoft.com/devcontainers/go:1-1.24-bookworm
+    volumes:
+      # Mounts the project folder to '/workspace'. The target path inside the container
+      # should match what your application expects. In this case, the compose file is
+      # in a sub-folder, so you will mount '..'. You would then reference this path as the
+      # 'workspaceFolder' in '.devcontainer/devcontainer.json' so VS Code starts here.
+      - .:/workspace:cached
+    # Required for ptrace-based debuggers like C++, Go, and Rust
+    cap_add:
+    - SYS_PTRACE
+    security_opt:
+    - seccomp:unconfined
+    depends_on:
+      - mongo1
+      - mongo2
+      - mongo3
+    command: sleep infinity

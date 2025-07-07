@@ -32,10 +32,12 @@ const (
 	Update            Command = "update"
 )
 
-var collectionCommands = []Command{Aggregate, Count, CreateIndexes, Delete, Distinct, Drop, DropIndexes, Find, FindAndModify, Insert, ListIndexes, MapReduce, Update}
-var int32Commands = []Command{AbortTransaction, Aggregate, CommitTransaction, DropDatabase, IsMaster, Ismaster, ListCollections, ListDatabases}
-var int64Commands = []Command{GetMore}
-var arrayCommands = []Command{EndSessions}
+var (
+	collectionCommands = []Command{Aggregate, Count, CreateIndexes, Delete, Distinct, Drop, DropIndexes, Find, FindAndModify, Insert, ListIndexes, MapReduce, Update}
+	int32Commands      = []Command{AbortTransaction, Aggregate, CommitTransaction, DropDatabase, IsMaster, Ismaster, ListCollections, ListDatabases}
+	int64Commands      = []Command{GetMore}
+	arrayCommands      = []Command{EndSessions}
+)
 
 func IsWrite(command Command) bool {
 	switch command {
@@ -83,10 +85,10 @@ func IsIsMasterDoc(doc bsoncore.Document) bool {
 
 func IsIsMasterValueTruthy(val bsoncore.Value) bool {
 	if intValue, isInt := val.Int32OK(); intValue > 0 {
-		return true;
+		return true
 	} else if !isInt {
 		boolValue, isBool := val.BooleanOK()
 		return boolValue && isBool
 	}
-	return false;
+	return false
 }
