@@ -1,4 +1,7 @@
 # mongobetween
+
+> **⚠️ DEPRECATED**: This project is no longer actively maintained or used in production. We have migrated to using direct MongoDB connections instead.
+
 `mongobetween` is a lightweight MongoDB connection pooler written in Golang. It's primary function is to handle a large number of incoming connections, and multiplex them across a smaller connection pool to one or more MongoDB clusters.
 
 `mongobetween` is used in production at Coinbase. It is currently deployed as a Docker sidecar alongside a Rails application using the [Ruby Mongo driver](https://github.com/mongodb/mongo-ruby-driver), connecting to a number of sharded MongoDB clusters. It was designed to connect to `mongos` routers who are responsible for server selection for read/write preferences (connecting directly to a replica set's `mongod` instances hasn't been battle tested).
