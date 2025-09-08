@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -8,8 +9,11 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/DataDog/datadog-go/statsd"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/event"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
@@ -27,6 +31,9 @@ const defaultStatsdAddress = "localhost:8125"
 var validNetworks = []string{"tcp", "tcp4", "tcp6", "unix", "unixpacket"}
 
 var newStatsdClientInit = newStatsdClient
+
+// commandContexts stores the context for each MongoDB command to track spans
+var commandContexts sync.Map
 
 type Config struct {
 	network    string
@@ -257,6 +264,8 @@ func initMonitoring(opts *options.ClientOptions, statsd *statsd.Client, logger *
 	// set up monitors for Pool and Server(SDAM)
 	opts = opts.SetPoolMonitor(poolMonitor(statsd))
 	opts = opts.SetServerMonitor(serverMonitoring(logger, statsd, enableSdamMetrics, enableSdamLogging))
+	// Add Datadog CommandMonitor for tracing MongoDB driver operations
+	opts = opts.SetMonitor(datadogCommandMonitor())
 	return opts
 }
 
@@ -422,4 +431,75 @@ func serverMonitoring(log *zap.Logger, statsdClient *statsd.Client, enableSdamMe
 			}
 		},
 	}
+}
+
+func datadogCommandMonitor() *event.CommandMonitor {
+	return &event.CommandMonitor{
+		Started: func(ctx context.Context, e *event.CommandStartedEvent) {
+			// Create child span for MongoDB driver operation
+			span, ctx := tracer.StartSpanFromContext(ctx, "mongodb.command")
+			
+			// Store span in context for finished event
+			// We use the request ID as a key to match start/finish events
+			commandContexts.Store(e.RequestID, ctx)
+			
+			// Set basic span tags (avoid PII)
+			span.SetTag("component", "mongodb-driver")
+			span.SetTag("mongodb.command", e.CommandName)
+			span.SetTag("mongodb.database", e.DatabaseName)
+			span.SetTag("mongodb.connection_id", e.ConnectionID)
+			span.SetTag("mongodb.request_id", e.RequestID)
+			
+			// Set collection tag if available in command
+			if collection := extractCollection(e.Command); collection != "" {
+				span.SetTag("mongodb.collection", collection)
+			}
+		},
+		
+		Succeeded: func(ctx context.Context, e *event.CommandSucceededEvent) {
+			if ctxValue, ok := commandContexts.LoadAndDelete(e.RequestID); ok {
+				if span, ok := tracer.SpanFromContext(ctxValue.(context.Context)); ok {
+					span.SetTag("mongodb.duration", e.Duration.String())
+					span.SetTag("mongodb.response.reply_size", len(e.Reply))
+					span.Finish()
+				}
+			}
+		},
+		
+		Failed: func(ctx context.Context, e *event.CommandFailedEvent) {
+			if ctxValue, ok := commandContexts.LoadAndDelete(e.RequestID); ok {
+				if span, ok := tracer.SpanFromContext(ctxValue.(context.Context)); ok {
+					// Don't tag EOF errors in APM spans
+					if e.Failure != "EOF" && !strings.Contains(e.Failure, "EOF") {
+						span.SetTag("error", true)
+						span.SetTag("error.msg", e.Failure)
+					}
+					span.SetTag("mongodb.duration", e.Duration.String())
+					span.Finish()
+				}
+			}
+		},
+	}
+}
+
+// extractCollection attempts to extract the collection name from a MongoDB command
+func extractCollection(command bson.Raw) string {
+	// Try to extract collection from various common command structures
+	var commandDoc bson.M
+	err := bson.Unmarshal(command, &commandDoc)
+	if err != nil {
+		return ""
+	}
+	
+	// For most commands, try to find the collection name
+	commandNames := []string{"find", "insert", "update", "delete", "count", "distinct", "aggregate", "findAndModify"}
+	for _, cmdName := range commandNames {
+		if collection, ok := commandDoc[cmdName]; ok {
+			if collectionStr, ok := collection.(string); ok {
+				return collectionStr
+			}
+		}
+	}
+	
+	return ""
 }

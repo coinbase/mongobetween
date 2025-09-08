@@ -1,6 +1,10 @@
 package mongo_test
 
 import (
+	"context"
+	"os"
+	"testing"
+
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/coinbase/mongobetween/mongo"
 	"github.com/coinbase/mongobetween/proxy"
@@ -12,8 +16,6 @@ import (
 	"go.mongodb.org/mongo-driver/x/bsonx/bsoncore"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.uber.org/zap"
-	"os"
-	"testing"
 )
 
 func insertOpMsg(t *testing.T) *mongo.Message {
@@ -57,7 +59,7 @@ func TestRoundTrip(t *testing.T) {
 
 	msg := insertOpMsg(t)
 
-	res, err := m.RoundTrip(msg, []string{})
+	res, err := m.RoundTrip(context.Background(), msg, []string{})
 	assert.Nil(t, err)
 
 	single := mongo.ExtractSingleOpMsg(t, res)
@@ -98,7 +100,7 @@ func TestRoundTripProcessError(t *testing.T) {
 
 	msg := insertOpMsg(t)
 
-	res, err := m.RoundTrip(msg, []string{})
+	res, err := m.RoundTrip(context.Background(), msg, []string{})
 	assert.Nil(t, err)
 
 	single := mongo.ExtractSingleOpMsg(t, res)
@@ -111,7 +113,7 @@ func TestRoundTripProcessError(t *testing.T) {
 	// kill the proxy
 	p.Kill()
 
-	_, err = m.RoundTrip(msg, []string{})
+	_, err = m.RoundTrip(context.Background(), msg, []string{})
 	assert.Error(t, driver.Error{}, err)
 
 	assert.Equal(t, description.ServerKind(description.Unknown), m.Description().Servers[0].Kind, "Failed to update the server Kind to Unknown")

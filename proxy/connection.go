@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-go/statsd"
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"go.uber.org/zap"
 
 	"github.com/coinbase/mongobetween/mongo"
@@ -65,6 +67,23 @@ func (c *connection) processMessages() {
 }
 
 func (c *connection) handleMessage() (err error) {
+	// Create parent span for message handling
+	span, ctx := tracer.StartSpanFromContext(context.Background(), "mongobetween.handle_message")
+	defer func() {
+		if err != nil && err != io.EOF {
+			span.SetTag("error", true)
+			span.SetTag("error.msg", err.Error())
+		}
+		span.Finish()
+	}()
+
+	// Set basic span tags
+	span.SetTag("component", "mongobetween")
+	span.SetTag("peer.address", c.address)
+	if remoteAddr := c.conn.RemoteAddr(); remoteAddr != nil {
+		span.SetTag("peer.hostname", remoteAddr.String())
+	}
+
 	var tags []string
 
 	defer func(start time.Time) {
@@ -77,6 +96,9 @@ func (c *connection) handleMessage() (err error) {
 		return
 	}
 
+	// Add request size to span
+	span.SetTag("mongodb.request.size", len(wm))
+
 	var op mongo.Operation
 	if op, err = mongo.Decode(wm); err != nil {
 		return
@@ -85,6 +107,16 @@ func (c *connection) handleMessage() (err error) {
 	isMaster := op.IsIsMaster()
 	command, collection := op.CommandAndCollection()
 	unacknowledged := op.Unacknowledged()
+
+	// Add MongoDB-specific span tags (avoid PII)
+	span.SetTag("mongodb.opcode", int32(op.OpCode()))
+	span.SetTag("mongodb.command", string(command))
+	if collection != "" {
+		span.SetTag("mongodb.collection", collection)
+	}
+	span.SetTag("mongodb.is_master", isMaster)
+	span.SetTag("mongodb.unacknowledged", unacknowledged)
+
 	tags = append(
 		tags,
 		fmt.Sprintf("request_op_code:%v", op.OpCode()),
@@ -107,13 +139,19 @@ func (c *connection) handleMessage() (err error) {
 		Op: op,
 	}
 	var res *mongo.Message
-	if res, err = c.roundTrip(req, isMaster, tags); err != nil {
+	if res, err = c.roundTrip(ctx, req, isMaster, tags); err != nil {
 		return
 	}
 
 	if unacknowledged {
 		c.log.Debug("Unacknowledged request")
 		return
+	}
+
+	// Add response size to span
+	if res != nil {
+		span.SetTag("mongodb.response.size", len(res.Wm))
+		span.SetTag("mongodb.response.opcode", int32(res.Op.OpCode()))
 	}
 
 	tags = append(
@@ -158,7 +196,7 @@ func (c *connection) readWireMessage() ([]byte, error) {
 	return buffer, nil
 }
 
-func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string) (*mongo.Message, error) {
+func (c *connection) roundTrip(ctx context.Context, msg *mongo.Message, isMaster bool, tags []string) (*mongo.Message, error) {
 	dynamic := c.dynamic.ForAddress(c.address)
 	if dynamic.DisableWrites {
 		command, _ := msg.Op.CommandAndCollection()
@@ -182,5 +220,5 @@ func (c *connection) roundTrip(msg *mongo.Message, isMaster bool, tags []string)
 		return mongo.IsMasterResponse(requestID, client.Description().Kind)
 	}
 
-	return client.RoundTrip(msg, tags)
+	return client.RoundTrip(ctx, msg, tags)
 }

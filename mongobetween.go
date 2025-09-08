@@ -4,18 +4,65 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"go.uber.org/zap"
 
 	"github.com/coinbase/mongobetween/config"
 )
 
 func main() {
+	// Initialize Datadog tracer
+	initDatadogTracer()
+	defer tracer.Stop()
+
 	c := config.ParseFlags()
 	run(c)
+}
+
+func initDatadogTracer() {
+	// Get service name from DD_SERVICE env var or use default
+	serviceName := os.Getenv("DD_SERVICE")
+	if serviceName == "" {
+		serviceName = "mongobetween"
+	}
+
+	// Get environment from DD_ENV env var or use default
+	env := os.Getenv("DD_ENV")
+	if env == "" {
+		env = "prod"
+	}
+
+	// Get version from DD_VERSION env var or use build info
+	version := os.Getenv("DD_VERSION")
+	if version == "" {
+		if info, ok := debug.ReadBuildInfo(); ok {
+			version = info.Main.Version
+		}
+		if version == "" || version == "(devel)" {
+			version = "unknown"
+		}
+	}
+
+	// Set up tracer options
+	opts := []tracer.StartOption{
+		tracer.WithService(serviceName),
+		tracer.WithEnv(env),
+		tracer.WithServiceVersion(version),
+	}
+
+	// Handle DD_AGENT_HOST or DD_TRACE_AGENT_URL
+	if agentHost := os.Getenv("DD_AGENT_HOST"); agentHost != "" {
+		opts = append(opts, tracer.WithAgentAddr(agentHost+":8126"))
+	} else if traceURL := os.Getenv("DD_TRACE_AGENT_URL"); traceURL != "" {
+		opts = append(opts, tracer.WithAgentAddr(traceURL))
+	}
+
+	tracer.Start(opts...)
 }
 
 func run(config *config.Config) {
