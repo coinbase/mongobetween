@@ -1,2 +1,7 @@
 /.idea/
 /bin/
+
+# Claude Code harness — local state, never committed
+.claude/worktrees/
+.claude/settings.local.json
+.claude/handoff.md
