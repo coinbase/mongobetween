@@ -1,6 +1,6 @@
 # LLM authorship hygiene
 
-**Hard constraint.** Any content an agent produces that a human outside the repo may read must not betray its origin. That means customer-facing UI strings, release notes, PR descriptions, commit messages, issue comments, customer support replies, and any document in `docs/product/` or user-visible parts of the codebase.
+**Hard constraint.** Any content an agent produces that a human outside the repo may read must not betray its origin. That means release notes, PR descriptions, commit messages, issue comments, and any user-visible documentation.
 
 Internal harness content (rules, skills, CLAUDE.md files, subsystem docs) is held to the same spirit but the bar is looser — prose should still read like a person wrote it, but the mechanical tells below are tolerated only if they genuinely aid clarity.
 
