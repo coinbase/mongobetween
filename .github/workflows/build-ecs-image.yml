@@ -1,0 +1,22 @@
+---
+name: Build ECS image
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Optioryx/cicd/.github/actions/build-and-push-to-ecr@main
+        with:
+          dockerfile: Dockerfile
+          ecr-repository: optioryx/mongobetween
+          aws-account-id: "023918416325"
+---
