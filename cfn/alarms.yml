@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "mongobetween CloudWatch alarms"
+
+Parameters:
+  Env:
+    Type: String
+
+  CloudWatchNamespace:
+    Type: String
+
+  ClusterName:
+    Type: String
+
+  ServiceName:
+    Type: String
+
+Resources:
+
+  AlarmPoolExhausted:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-pool-exhausted
+      AlarmDescription: "mongobetween pool check-out failures -- increase MongobetweenPoolSize"
+      Namespace: !Ref CloudWatchNamespace
+      MetricName: mongobetween.pool_event.connection_check_out_failed
+      Dimensions:
+        - Name: Env
+          Value: !Ref Env
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+  AlarmInstanceDown:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-instance-down
+      AlarmDescription: "One mongobetween task is down -- running on single instance"
+      Namespace: AWS/ECS
+      MetricName: RunningTaskCount
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref ClusterName
+        - Name: ServiceName
+          Value: !Ref ServiceName
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 2
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+
+  AlarmFullOutage:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-full-outage
+      AlarmDescription: "All mongobetween tasks down -- clients falling back to Atlas"
+      Namespace: AWS/ECS
+      MetricName: RunningTaskCount
+      Dimensions:
+        - Name: ClusterName
+          Value: !Ref ClusterName
+        - Name: ServiceName
+          Value: !Ref ServiceName
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+
+  AlarmHighProxyLatency:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-high-proxy-latency
+      AlarmDescription: "mongobetween end-to-end p99 latency above 5s"
+      Namespace: !Ref CloudWatchNamespace
+      MetricName: mongobetween.handle_message
+      Dimensions:
+        - Name: Env
+          Value: !Ref Env
+      ExtendedStatistic: p99
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  AlarmHighAtlasLatency:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${AWS::StackName}-high-atlas-latency
+      AlarmDescription: "mongobetween Atlas round-trip p99 above 3s"
+      Namespace: !Ref CloudWatchNamespace
+      MetricName: mongobetween.round_trip
+      Dimensions:
+        - Name: Env
+          Value: !Ref Env
+      ExtendedStatistic: p99
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 3000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching

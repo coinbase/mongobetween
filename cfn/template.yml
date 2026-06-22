@@ -1,0 +1,232 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "mongobetween connection pooling proxy"
+
+Parameters:
+  Env:
+    Type: String
+    Default: dev
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+
+  LambdaSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "Lambda SG -- inbound from it allowed; egress rule to mongobetween added to it"
+
+  MongodbCluster:
+    Type: String
+    Description: "Atlas cluster hostname (e.g. production.gvgvu.mongodb.net)"
+
+  MongobetweenImgTag:
+    Type: String
+    Description: "ECR image tag to deploy (e.g. v1.0.0)"
+
+  MongobetweenPoolSize:
+    Type: Number
+    Default: 20
+    Description: "Upstream Atlas connection pool size"
+
+  DnsNamespace:
+    Type: String
+    Description: "Private DNS namespace for Cloud Map service discovery (e.g. myapp.local)"
+
+  CloudWatchNamespace:
+    Type: String
+    Description: "CloudWatch metrics namespace for statsd metrics"
+
+Resources:
+
+  MongobetweenCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${AWS::StackName}-cluster
+
+  PrivateDnsNamespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: !Ref DnsNamespace
+      Vpc: !Ref VpcId
+
+  MongobetweenDiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: mongobetween
+      NamespaceId: !Ref PrivateDnsNamespace
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  MongobetweenSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "mongobetween -- inbound 27016 from Lambda only"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 27016
+          ToPort: 27016
+          SourceSecurityGroupId: !Ref LambdaSecurityGroupId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 27017
+          ToPort: 27017
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  LambdaToMongobetweenEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref LambdaSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 27016
+      ToPort: 27016
+      DestinationSecurityGroupId: !Ref MongobetweenSecurityGroup
+
+  MongobetweenTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-task-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  MongobetweenExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-execution-${AWS::Region}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  MongobetweenLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${AWS::StackName}
+      RetentionInDays: 30
+
+  MongobetweenTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}
+      Cpu: "512"
+      Memory: "640"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      TaskRoleArn: !GetAtt MongobetweenTaskRole.Arn
+      ExecutionRoleArn: !GetAtt MongobetweenExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: mongobetween
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}/optioryx/mongobetween:${MongobetweenImgTag}"
+          Essential: true
+          PortMappings:
+            - ContainerPort: 27016
+              Protocol: tcp
+          Environment:
+            - Name: MONGOBETWEEN_URI
+              Value: !Sub ":27016=mongodb+srv://${MongodbCluster}/?authSource=%24external&authMechanism=MONGODB-AWS&maxpoolsize=${MongobetweenPoolSize}&label=${AWS::StackName}"
+          HealthCheck:
+            Command: ["CMD-SHELL", "nc -z localhost 27016 || exit 1"]
+            Interval: 10
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub /ecs/${AWS::StackName}
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: mongobetween
+        - Name: cloudwatch-agent
+          Image: public.ecr.aws/cloudwatch-agent/cloudwatch-agent:latest
+          Essential: false
+          Environment:
+            - Name: CW_CONFIG_CONTENT
+              Value: !Sub |
+                {
+                  "metrics": {
+                    "namespace": "${CloudWatchNamespace}",
+                    "metrics_collected": {
+                      "statsd": {
+                        "service_address": ":8125",
+                        "metrics_collection_interval": 10,
+                        "metrics_aggregation_interval": 60,
+                        "metric_separator": "."
+                      }
+                    },
+                    "append_dimensions": {
+                      "Env": "${Env}",
+                      "StackName": "${AWS::StackName}"
+                    }
+                  }
+                }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub /ecs/${AWS::StackName}
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: cw-agent
+
+  MongobetweenService:
+    Type: AWS::ECS::Service
+    DependsOn: MongobetweenDiscoveryService
+    Properties:
+      ServiceName: !Sub ${AWS::StackName}-service
+      Cluster: !Ref MongobetweenCluster
+      TaskDefinition: !Ref MongobetweenTaskDefinition
+      DesiredCount: 2
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Ref PrivateSubnetIds
+          SecurityGroups: [!Ref MongobetweenSecurityGroup]
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt MongobetweenDiscoveryService.Arn
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+
+  AlarmsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./alarms.yml
+      Parameters:
+        Env: !Ref Env
+        CloudWatchNamespace: !Ref CloudWatchNamespace
+        ClusterName: !Ref MongobetweenCluster
+        ServiceName: !Sub ${AWS::StackName}-service
+
+Outputs:
+  MongobetweenEndpoint:
+    Description: "Set this as MONGODB_CLUSTER in your Lambda env"
+    Value: !Sub "mongobetween.${DnsNamespace}:27016"
+
+  ClusterName:
+    Value: !Ref MongobetweenCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-ClusterName
+
+  ServiceName:
+    Value: !Sub ${AWS::StackName}-service
+    Export:
+      Name: !Sub ${AWS::StackName}-ServiceName
