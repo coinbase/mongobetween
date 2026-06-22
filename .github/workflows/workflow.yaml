@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - run: go install gotest.tools/gotestsum@latest
+      - run: go install gotest.tools/gotestsum@v1.12.0
       - run: |
           ~/go/bin/gotestsum --junitfile gotestsum-report.xml ./...
       - uses: mikepenz/action-junit-report@v4
